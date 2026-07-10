@@ -1,0 +1,13 @@
+# ========================================================= #
+#                   Position Display [pos]                  #
+# ========================================================= #
+
+enabled: true
+permission: "xchat.tags.use"
+
+triggers: 
+  - "[pos]"
+  - "[coords]"
+  - "[loc]"
+
+format: "<hover:show_text:'<gray>Click to copy coordinates'><click:suggest_command:'{x} {y} {z}'><dark_gray>[<green>📍 {x}, {y}, {z} <gray>({world})</gray></green>]</dark_gray></click></hover>"

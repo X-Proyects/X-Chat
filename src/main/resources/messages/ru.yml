@@ -1,0 +1,64 @@
+# ========================================== #
+#                 Сообщения                  #
+# ========================================== #
+# %prefix% заменяется префиксом, заданным в config.yml
+
+no-permission: "%prefix% <red>У вас нет прав для выполнения этого действия."
+reloaded: "%prefix% <green>Файлы конфигурации успешно перезагружены."
+
+# Личные сообщения и SocialSpy
+msg-format-sender: "<gray>[Я -> %target%] <white>%message%"
+msg-format-receiver: "<gray>[%sender% -> Мне] <white>%message%"
+social-spy-format: "<dark_gray>[Spy] <gray>%sender% -> %target%: <white>%message%"
+social-spy-toggled-on: "%prefix% <green>SocialSpy включён."
+social-spy-toggled-off: "%prefix% <red>SocialSpy отключён."
+player-not-found: "%prefix% <red>Игрок не найден."
+player-cannot-msg-self: "%prefix% <red>Вы не можете отправить сообщение самому себе."
+no-reply-target: "%prefix% <red>Вам некому отвечать."
+player-ignored: "%prefix% <green>Вы игнорируете <yellow>%player%</yellow>. Его сообщения больше не будут отображаться."
+player-unignored: "%prefix% <green>Вы больше не игнорируете <yellow>%player%</yellow>."
+cannot-ignore-self: "%prefix% <red>Вы не можете игнорировать самого себя."
+player-ignoring-you: "%prefix% <red>Этот игрок игнорирует вас. Вы не можете отправить ему сообщение."
+define-player-action: "%prefix% <red>Укажите игрока и действие: /%command% <игрок> <сообщение/команда>"
+define-player: "%prefix% <red>Укажите игрока: /%command% <игрок>"
+define-message: "%prefix% <red>Укажите сообщение: /%command% <сообщение>"
+only-players-spy: "%prefix% <red>SocialSpy могут использовать только игроки."
+no-recent-history: "%prefix% <red>Нет недавней истории в памяти для %player%."
+only-players-ignore: "%prefix% <red>Функцию игнорирования могут использовать только игроки."
+define-player-page: "%prefix% <red>Укажите игрока: /%command% <игрок> [страница]"
+sudo-success: "%prefix% <gray>Вы заставили <white>%player% <gray>выполнить: <yellow>%action%"
+chatlog-header: "<green>--- <yellow>История %player% <gray>(Страница %page%/%max%) <green>---"
+broadcast-usage: "%prefix% <red>Использование: /%command% <сообщение>"
+chat-cleared: "%prefix% <green>Чат очищен игроком <yellow>%player%</yellow>."
+sudo-exempt: "%prefix% <red>Вы не можете использовать sudo на этом игроке."
+broadcast-fallback: "<dark_gray>[<red>Объявление</red>]<dark_gray> » <white>{message}"
+
+# Smart Censor Filter
+censor-mode-partial: "<gray>частичный (пример: i***to)"
+censor-mode-full: "<gray>полный (пример: *****)"
+plugin-version: "%prefix% <gray>Версия: <white>%version%"
+update-checker-disabled: "%prefix% <red>Проверка обновлений отключена в конфигурации."
+locate-usage: "%prefix% <red>Использование: /xchat locate <язык>"
+locate-current: "%prefix% <gray>Текущий язык: <white>%current%"
+locate-available: "%prefix% <gray>Доступные языки: <white>%available%"
+locate-success: "%prefix% <green>Язык изменён на: <white>%lang%"
+locate-not-found: "%prefix% <red>Язык не найден: <white>%lang%"
+define-msg-target: "%prefix% <red>Укажите получателя и сообщение: /%command% <игрок> <сообщение>"
+console-name: "<dark_red><bold>Консоль</bold></dark_red>"
+
+command-help:
+  - "<dark_gray><strikethrough>                                                  "
+  - "<gradient:#00bfff:#1e90ff><bold>Помощь X-Chat</bold></gradient>"
+  - ""
+  - " <gray>»</gray> <aqua>/xchat reload</aqua> <dark_gray>-</dark_gray> <gray>Перезагружает YML-файлы.</gray>"
+  - " <gray>»</gray> <aqua>/xchat version</aqua> <dark_gray>-</dark_gray> <gray>Показывает версию плагина.</gray>"
+  - " <gray>»</gray> <aqua>/xchat update</aqua> <dark_gray>-</dark_gray> <gray>Проверяет наличие обновлений.</gray>"
+  - " <gray>»</gray> <aqua>/xchat locate <язык></aqua> <dark_gray>-</dark_gray> <gray>Меняет язык плагина.</gray>"
+  - "<dark_gray><strikethrough>                                                  "
+
+# Обновления
+update-available: "%prefix% <green>Доступно новое обновление! <gray>(%current% -> %latest%)"
+update-download: "%prefix% <green>Скачать здесь: <aqua><underlined>%url%"
+update-current: "%prefix% <green>Вы уже используете последнюю версию."
+update-error: "%prefix% <red>Ошибка при проверке обновлений."
+

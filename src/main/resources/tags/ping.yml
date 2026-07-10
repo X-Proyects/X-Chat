@@ -1,0 +1,12 @@
+# ========================================================= #
+#                   Ping Display [ping]                     #
+# ========================================================= #
+
+enabled: true
+permission: "xchat.tags.use"
+
+triggers: 
+  - "[ping]"
+  - "[ms]"
+
+format: "<dark_gray>[<aqua>📡 {ping}ms</aqua>]</dark_gray>"

@@ -1,0 +1,78 @@
+# ========================================== #
+#                 Mensajes                   #
+# ========================================== #
+# %prefix% se reemplaza por el prefijo definido en config.yml
+
+no-permission: "%prefix% <red>No tienes permisos para realizar esto."
+reloaded: "%prefix% <green>Los archivos de configuración se han recargado."
+
+# Mensajería Privada y SocialSpy
+msg-format-sender: "<gray>[Yo -> %target%] <white>%message%"
+msg-format-receiver: "<gray>[%sender% -> Yo] <white>%message%"
+social-spy-format: "<dark_gray>[Spy] <gray>%sender% -> %target%: <white>%message%"
+social-spy-toggled-on: "%prefix% <green>SocialSpy activado."
+social-spy-toggled-off: "%prefix% <red>SocialSpy desactivado."
+player-not-found: "%prefix% <red>Jugador no encontrado."
+player-cannot-msg-self: "%prefix% <red>No puedes enviarte un mensaje a ti mismo."
+no-reply-target: "%prefix% <red>No tienes a nadie a quien responder."
+player-ignored: "%prefix% <green>Has ignorado a <yellow>%player%</yellow>. Ya no verás sus mensajes."
+player-unignored: "%prefix% <green>Has dejado de ignorar a <yellow>%player%</yellow>."
+cannot-ignore-self: "%prefix% <red>No puedes ignorarte a ti mismo."
+player-ignoring-you: "%prefix% <red>Ese jugador te tiene ignorado, no puedes enviarle mensajes."
+define-player-action: "%prefix% <red>Defina un jugador y la acción: /%command% <jugador> <mensaje/comando>"
+define-player: "%prefix% <red>Defina un jugador: /%command% <jugador>"
+define-message: "%prefix% <red>Defina un mensaje: /%command% <mensaje>"
+only-players-spy: "%prefix% <red>Solo jugadores pueden usar SocialSpy."
+no-recent-history: "%prefix% <red>No hay historial reciente en memoria para %player%."
+only-players-ignore: "%prefix% <red>Solo jugadores pueden usar el ignore."
+define-player-page: "%prefix% <red>Defina un jugador: /%command% <jugador> [página]"
+sudo-success: "%prefix% <gray>Forzaste a <white>%player% <gray>a ejecutar: <yellow>%action%"
+chatlog-header: "<green>--- <yellow>Historial de %player% <gray>(Página %page%/%max%) <green>---"
+broadcast-usage: "%prefix% <red>Uso: /%command% <mensaje>"
+chat-cleared: "%prefix% <green>El chat ha sido limpiado por <yellow>%player%</yellow>."
+sudo-exempt: "%prefix% <red>No puedes usar sudo en este jugador."
+broadcast-fallback: "<dark_gray>[<red>Anuncio</red>]<dark_gray> » <white>{message}"
+
+# Smart Censor Filter
+censor-mode-partial: "<gray>parcial (ej: i***to)"
+censor-mode-full: "<gray>completo (ej: *****)"
+
+plugin-version: "%prefix% <gray>Versión: <white>%version%"
+update-checker-disabled: "%prefix% <red>El verificador de actualizaciones está desactivado en la config."
+locate-usage: "%prefix% <red>Uso: /xchat locate <idioma>"
+locate-current: "%prefix% <gray>Actual: <white>%current%"
+locate-available: "%prefix% <gray>Disponibles: <white>%available%"
+locate-success: "%prefix% <green>El idioma se ha actualizado a: <white>%lang%"
+locate-not-found: "%prefix% <red>Idioma no encontrado: <white>%lang%"
+define-msg-target: "%prefix% <red>Defina un destinatario y el mensaje: /%command% <jugador> <mensaje>"
+console-name: "<dark_red><bold>Consola</bold></dark_red>"
+command-help:
+  - "<dark_gray><strikethrough>                                                  "
+  - "<gradient:#00bfff:#1e90ff><bold>Ayuda de X-Chat</bold></gradient>"
+  - ""
+  - " <gray>»</gray> <aqua>/xchat reload</aqua> <dark_gray>-</dark_gray> <gray>Recarga los archivos YML.</gray>"
+  - " <gray>»</gray> <aqua>/xchat version</aqua> <dark_gray>-</dark_gray> <gray>Muestra la versión del plugin.</gray>"
+  - " <gray>»</gray> <aqua>/xchat update</aqua> <dark_gray>-</dark_gray> <gray>Busca actualizaciones.</gray>"
+  - " <gray>»</gray> <aqua>/xchat locate <en/es></aqua> <dark_gray>-</dark_gray> <gray>Cambia el idioma del plugin.</gray>"
+  - " <gray>»</gray> <aqua>/xchat forcemessages <new|keep> <all|lang></aqua> <dark_gray>-</dark_gray> <gray>Forcea la actualización de archivos de mensajes.</gray>"
+  - "<dark_gray><strikethrough>                                                  "
+
+# Comando Force Messages
+force-messages-usage: "%prefix% <red>Uso: <white>/xchat forcemessages <new|keep> <all|idioma>"
+force-messages-current: "%prefix% <gray>Idioma actual: <white>%current%"
+force-messages-success: "%prefix% <green>Archivo de mensajes '<white>%lang%<green>' actualizado (claves faltantes añadidas) y recargado."
+force-messages-no-changes: "%prefix% <gray>Archivo de mensajes '<white>%lang%<gray>' actualizado en disco, pero no es el idioma activo."
+force-messages-all: "%prefix% <green>Se actualizaron <white>%count%<green> archivo(s) de idioma con claves faltantes."
+force-messages-reset-success: "%prefix% <green>Archivo de mensajes '<white>%lang%<green>' regenerado desde los valores predeterminados y recargado."
+force-messages-reset-no-active: "%prefix% <gray>Archivo de mensajes '<white>%lang%<gray>' regenerado desde los valores predeterminados, pero no es el idioma activo."
+force-messages-reset-all: "%prefix% <green>Se regeneraron <white>%count%<green> archivo(s) de idioma desde los valores predeterminados."
+force-messages-invalid-mode: "%prefix% <red>Modo inválido. Usa <white>new<red> o <white>keep<red>."
+language-not-found: "%prefix% <red>Idioma no encontrado. Disponibles: <white>%available%"
+language-list: "%prefix% <gray>Idiomas disponibles: <white>%available%"
+
+# Actualizaciones
+update-available: "%prefix% <green>¡Hay una nueva actualización disponible! <gray>(%current% -> %latest%)"
+update-download: "%prefix% <green>Descárgala aquí: <aqua><underlined>%url%"
+update-current: "%prefix% <green>Ya estás utilizando la última versión."
+update-error: "%prefix% <red>Error al comprobar actualizaciones."
+

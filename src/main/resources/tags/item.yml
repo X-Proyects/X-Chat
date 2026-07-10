@@ -1,0 +1,24 @@
+# ========================================================= #
+#                   Item Display [item]                     #
+# ========================================================= #
+
+enabled: true
+permission: "xchat.item.show"
+
+triggers:
+  - "[item]"
+  - "[i]"
+  - "[inv]"
+  - "[hand]"
+  - "[show]"
+
+display-format: "<hover:show_text:'{item_hover}'><gold>[<yellow>{item_name} <gray>x{item_amount}</gray></yellow>]</gold></hover>"
+empty-hand: "<gray>[Empty Hand]</gray>"
+
+hover-format:
+  - "<white><bold>{item_name}</bold>"
+  - "<dark_gray>Amount: <white>{item_amount}"
+  - "<dark_gray>Durability: <green>{item_durability}</green><gray>/</gray><green>{item_max_durability}</green>"
+  - ""
+  - "{item_enchantments}"
+  - "{item_lore}"

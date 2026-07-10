@@ -1,0 +1,64 @@
+# ========================================== #
+#                 Mensagens                  #
+# ========================================== #
+# %prefix% é substituído pelo prefixo definido em config.yml
+
+no-permission: "%prefix% <red>Você não tem permissão para fazer isso."
+reloaded: "%prefix% <green>Os arquivos de configuração foram recarregados."
+
+# Mensagens Privadas e SocialSpy
+msg-format-sender: "<gray>[Eu -> %target%] <white>%message%"
+msg-format-receiver: "<gray>[%sender% -> Eu] <white>%message%"
+social-spy-format: "<dark_gray>[Spy] <gray>%sender% -> %target%: <white>%message%"
+social-spy-toggled-on: "%prefix% <green>SocialSpy ativado."
+social-spy-toggled-off: "%prefix% <red>SocialSpy desativado."
+player-not-found: "%prefix% <red>Jogador não encontrado."
+player-cannot-msg-self: "%prefix% <red>Você não pode enviar uma mensagem para si mesmo."
+no-reply-target: "%prefix% <red>Você não tem ninguém para responder."
+player-ignored: "%prefix% <green>Você ignorou <yellow>%player%</yellow>. Você não verá mais as mensagens dele."
+player-unignored: "%prefix% <green>Você não está mais ignorando <yellow>%player%</yellow>."
+cannot-ignore-self: "%prefix% <red>Você não pode ignorar a si mesmo."
+player-ignoring-you: "%prefix% <red>Esse jogador está ignorando você, você não pode enviar mensagens a ele."
+define-player-action: "%prefix% <red>Defina um jogador e a ação: /%command% <jogador> <mensagem/comando>"
+define-player: "%prefix% <red>Defina um jogador: /%command% <jogador>"
+define-message: "%prefix% <red>Defina uma mensagem: /%command% <mensagem>"
+only-players-spy: "%prefix% <red>Apenas jogadores podem usar o SocialSpy."
+no-recent-history: "%prefix% <red>Nenhum histórico recente na memória para %player%."
+only-players-ignore: "%prefix% <red>Apenas jogadores podem usar o ignore."
+define-player-page: "%prefix% <red>Defina um jogador: /%command% <jogador> [página]"
+sudo-success: "%prefix% <gray>Você forçou <white>%player% <gray>a executar: <yellow>%action%"
+chatlog-header: "<green>--- <yellow>Histórico de %player% <gray>(Página %page%/%max%) <green>---"
+broadcast-usage: "%prefix% <red>Uso: /%command% <mensagem>"
+chat-cleared: "%prefix% <green>O chat foi limpo por <yellow>%player%</yellow>."
+sudo-exempt: "%prefix% <red>Você não pode usar sudo neste jogador."
+broadcast-fallback: "<dark_gray>[<red>Anúncio</red>]<dark_gray> » <white>{message}"
+
+# Smart Censor Filter
+censor-mode-partial: "<gray>parcial (ex: i***to)"
+censor-mode-full: "<gray>completo (ex: *****)"
+plugin-version: "%prefix% <gray>Versão: <white>%version%"
+update-checker-disabled: "%prefix% <red>O verificador de atualizações está desativado na config."
+locate-usage: "%prefix% <red>Uso: /xchat locate <idioma>"
+locate-current: "%prefix% <gray>Atual: <white>%current%"
+locate-available: "%prefix% <gray>Disponíveis: <white>%available%"
+locate-success: "%prefix% <green>O idioma foi atualizado para: <white>%lang%"
+locate-not-found: "%prefix% <red>Idioma não encontrado: <white>%lang%"
+define-msg-target: "%prefix% <red>Defina um destinatário e a mensagem: /%command% <jogador> <mensagem>"
+console-name: "<dark_red><bold>Console</bold></dark_red>"
+
+command-help:
+  - "<dark_gray><strikethrough>                                                  "
+  - "<gradient:#00bfff:#1e90ff><bold>Ajuda do X-Chat</bold></gradient>"
+  - ""
+  - " <gray>»</gray> <aqua>/xchat reload</aqua> <dark_gray>-</dark_gray> <gray>Recarrega os arquivos YML.</gray>"
+  - " <gray>»</gray> <aqua>/xchat version</aqua> <dark_gray>-</dark_gray> <gray>Mostra a versão do plugin.</gray>"
+  - " <gray>»</gray> <aqua>/xchat update</aqua> <dark_gray>-</dark_gray> <gray>Verifica atualizações.</gray>"
+  - " <gray>»</gray> <aqua>/xchat locate <idioma></aqua> <dark_gray>-</dark_gray> <gray>Muda o idioma do plugin.</gray>"
+  - "<dark_gray><strikethrough>                                                  "
+
+# Atualizações
+update-available: "%prefix% <green>Uma nova atualização está disponível! <gray>(%current% -> %latest%)"
+update-download: "%prefix% <green>Baixe aqui: <aqua><underlined>%url%"
+update-current: "%prefix% <green>Você já está usando a última versão."
+update-error: "%prefix% <red>Erro ao verificar atualizações."
+

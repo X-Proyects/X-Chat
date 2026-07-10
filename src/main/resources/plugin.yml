@@ -1,0 +1,26 @@
+name: X-Chat
+version: 1.3-Beta-06
+main: com.fabian.xchat.XChat
+api-version: 1.16
+folia-supported: true
+softdepend: [PlaceholderAPI, Vault]
+authors: [Fabian]
+website: https://xproyects.qzz.io
+description: "A plugin to easily manage chat."
+
+commands:
+  xchat:
+    description: Main administrative command for X-Chat
+    aliases: [xch, xct, x-chat]
+    permission: xchat.admin
+
+permissions:
+  xchat.admin:
+    description: Allows use of X-Chat administrative commands.
+    default: op
+  xchat.admin.forcemessages:
+    description: Allows use of the /xchat forcemessages command.
+    default: op
+  xchat.colors:
+    description: Allows use of colors in chat.
+    default: op

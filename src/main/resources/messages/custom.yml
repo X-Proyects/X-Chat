@@ -1,0 +1,66 @@
+# ========================================== #
+#           Custom Language File             #
+# ========================================== #
+# Edit this file to create your own language!
+# %prefix% is replaced by the prefix defined in config.yml
+# To use this file, set 'language: custom' in config.yml
+
+no-permission: "%prefix% <red>You don't have permission to do this."
+reloaded: "%prefix% <green>Configuration files have been reloaded."
+
+# Private Messages & SocialSpy
+msg-format-sender: "<gray>[Me -> %target%] <white>%message%"
+msg-format-receiver: "<gray>[%sender% -> Me] <white>%message%"
+social-spy-format: "<dark_gray>[Spy] <gray>%sender% -> %target%: <white>%message%"
+social-spy-toggled-on: "%prefix% <green>SocialSpy enabled."
+social-spy-toggled-off: "%prefix% <red>SocialSpy disabled."
+player-not-found: "%prefix% <red>Player not found."
+player-cannot-msg-self: "%prefix% <red>You cannot send a message to yourself."
+no-reply-target: "%prefix% <red>You have no one to reply to."
+player-ignored: "%prefix% <green>You have ignored <yellow>%player%</yellow>. You will no longer see their messages."
+player-unignored: "%prefix% <green>You are no longer ignoring <yellow>%player%</yellow>."
+cannot-ignore-self: "%prefix% <red>You cannot ignore yourself."
+player-ignoring-you: "%prefix% <red>That player is ignoring you, you cannot send them messages."
+define-player-action: "%prefix% <red>Define a player and the action: /%command% <player> <message/command>"
+define-player: "%prefix% <red>Define a player: /%command% <player>"
+define-message: "%prefix% <red>Define a message: /%command% <message>"
+only-players-spy: "%prefix% <red>Only players can use SocialSpy."
+no-recent-history: "%prefix% <red>No recent history in memory for %player%."
+only-players-ignore: "%prefix% <red>Only players can use ignore."
+define-player-page: "%prefix% <red>Define a player: /%command% <player> [page]"
+sudo-success: "%prefix% <gray>You forced <white>%player% <gray>to execute: <yellow>%action%"
+chatlog-header: "<green>--- <yellow>History for %player% <gray>(Page %page%/%max%) <green>---"
+broadcast-usage: "%prefix% <red>Usage: /%command% <message>"
+chat-cleared: "%prefix% <green>The chat was cleared by <yellow>%player%</yellow>."
+sudo-exempt: "%prefix% <red>You cannot sudo this player."
+broadcast-fallback: "<dark_gray>[<red>Announcement</red>]<dark_gray> » <white>{message}"
+
+# Smart Censor Filter
+censor-mode-partial: "<gray>partial (e.g.: i***to)"
+censor-mode-full: "<gray>full (e.g.: *****)"
+plugin-version: "%prefix% <gray>Version: <white>%version%"
+update-checker-disabled: "%prefix% <red>Update checker is disabled in config."
+locate-usage: "%prefix% <red>Usage: /xchat locate <language>"
+locate-current: "%prefix% <gray>Current: <white>%current%"
+locate-available: "%prefix% <gray>Available: <white>%available%"
+locate-success: "%prefix% <green>Language has been updated to: <white>%lang%"
+locate-not-found: "%prefix% <red>Language not found: <white>%lang%"
+define-msg-target: "%prefix% <red>Define a recipient and the message: /%command% <player> <message>"
+console-name: "Console"
+
+command-help:
+  - "<dark_gray><strikethrough>                                                  "
+  - "<gradient:#00bfff:#1e90ff><bold>X-Chat Help</bold></gradient>"
+  - ""
+  - " <gray>»</gray> <aqua>/xchat reload</aqua> <dark_gray>-</dark_gray> <gray>Reloads YAML files.</gray>"
+  - " <gray>»</gray> <aqua>/xchat version</aqua> <dark_gray>-</dark_gray> <gray>Shows plugin version.</gray>"
+  - " <gray>»</gray> <aqua>/xchat update</aqua> <dark_gray>-</dark_gray> <gray>Checks for updates.</gray>"
+  - " <gray>»</gray> <aqua>/xchat locate <language></aqua> <dark_gray>-</dark_gray> <gray>Changes plugin language.</gray>"
+  - "<dark_gray><strikethrough>                                                  "
+
+# Updates
+update-available: "%prefix% <green>A new update is available! <gray>(%current% -> %latest%)"
+update-download: "%prefix% <green>Download it here: <aqua><underlined>%url%"
+update-current: "%prefix% <green>You are already using the latest version."
+update-error: "%prefix% <red>Error checking for updates."
+

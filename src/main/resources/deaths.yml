@@ -1,0 +1,91 @@
+# ========================================================= #
+#                   X-Chat - Deaths                        #
+# ========================================================= #
+# Available variables in all messages:
+#   %player%   - Name of the player who died
+#   %killer%   - Name of the killer (player or entity)
+#   %weapon%   - Name of the item used (if applicable)
+#   %world%    - World where the death occurred
+#
+# Full support for MiniMessage, legacy (&), and PlaceholderAPI.
+# ========================================================= #
+
+# ---- Killed by player ---- #
+pvp:
+  enabled: true
+  with-weapon: "<dark_red>☠ <red><bold>%player%</bold> <gray>was slain by <red><bold>%killer%</bold> <dark_gray>using <yellow>%weapon%<dark_gray>."
+  without-weapon: "<dark_red>☠ <red><bold>%player%</bold> <gray>was slain by <red><bold>%killer%</bold><dark_gray>."
+
+# ---- Killed by mob / entity ---- #
+mob:
+  enabled: true
+  with-weapon: "<dark_red>☠ <red><bold>%player%</bold> <gray>was killed by <red>%killer% <dark_gray>using <yellow>%weapon%<dark_gray>."
+  without-weapon: "<dark_red>☠ <red><bold>%player%</bold> <gray>was killed by <red>%killer%<dark_gray>."
+
+# ---- Fall ---- #
+fall:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>fell from a high place."
+
+# ---- Drowning ---- #
+drown:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>drowned trying to escape."
+
+# ---- Fire / Burn ---- #
+fire:
+  enabled: true
+  on-fire: "<dark_red>☠ <red><bold>%player%</bold> <gray>burned to death."
+  burned: "<dark_red>☠ <red><bold>%player%</bold> <gray>was burnt to a crisp."
+
+# ---- Lava ---- #
+lava:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>tried to swim in lava."
+
+# ---- Void ---- #
+void:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>fell out of the world."
+
+# ---- Suffocation ---- #
+suffocation:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>suffocated in a wall."
+
+# ---- Starvation ---- #
+starvation:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>starved to death."
+
+# ---- Explosion ---- #
+explosion:
+  enabled: true
+  by-player: "<dark_red>☠ <red><bold>%player%</bold> <gray>was blown up by <red><bold>%killer%</bold><dark_gray>."
+  generic: "<dark_red>☠ <red><bold>%player%</bold> <gray>blew up."
+
+# ---- Cactus ---- #
+cactus:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>was pricked to death."
+
+# ---- Lightning ---- #
+lightning:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>was struck by lightning."
+
+# ---- Magic / Poison ---- #
+magic:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>was killed by magic."
+
+# ---- Projectile (arrow, etc.) ---- #
+projectile:
+  enabled: true
+  by-player: "<dark_red>☠ <red><bold>%player%</bold> <gray>was shot by <red><bold>%killer%</bold><dark_gray>."
+  generic: "<dark_red>☠ <red><bold>%player%</bold> <gray>was shot by a projectile."
+
+# ---- Generic / Other causes ---- #
+generic:
+  enabled: true
+  message: "<dark_red>☠ <red><bold>%player%</bold> <gray>died mysteriously."

@@ -1,0 +1,56 @@
+# ========================================================= #
+#                 X-Chat - Auto Broadcaster                #
+# ========================================================= #
+# This file controls the automatic announcements on the server.
+# Full support for MiniMessage, PlaceholderAPI, and interactive text.
+# ========================================================= #
+
+settings:
+  # Enable the auto-broadcaster?
+  enabled: true
+  
+  # Interval between announcements (in seconds)
+  interval: 300
+  
+  # Should announcements be sent in random order instead of sequentially?
+  random-order: false
+  
+  # Global prefix for all announcements
+  prefix: "<dark_gray>[<yellow><bold>Broadcast</bold></yellow>]<dark_gray> "
+
+# List of announcements. You can add as many as you want.
+announcements:
+  1:
+    # Sound played to all players when this message is sent
+    sound: "ENTITY_PLAYER_LEVELUP"
+    # Send this announcement to other servers via Redis? (requires cross-server enabled)
+    cross-server: true
+    # Show the server prefix on other servers? (only applies when cross-server is true)
+    show-server-prefix: true
+    # The actual message (can be multiple lines)
+    lines:
+      - ""
+      - "  <gold>Welcome to our amazing server!</gold>"
+      - "  <gray>Don't forget to read the rules with <white>/rules</white></gray>"
+      - ""
+
+  2:
+    sound: "BLOCK_NOTE_BLOCK_PLING"
+    cross-server: true
+    show-server-prefix: true
+    lines:
+      - ""
+      - "  <gradient:#00bfff:#1e90ff><b>Did you know?</b></gradient>"
+      - "  <gray>You can support us by purchasing ranks at</gray>"
+      - "  <aqua><underlined>store.yourserver.com</underlined></aqua>"
+      - ""
+
+  3:
+    sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
+    cross-server: false
+    show-server-prefix: false
+    lines:
+      - ""
+      - "  <light_purple><b>Vote for us!</b></light_purple>"
+      - "  <gray>Get free rewards every day by typing <white>/vote</white></gray>"
+      - ""

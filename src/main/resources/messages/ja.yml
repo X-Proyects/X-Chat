@@ -1,0 +1,64 @@
+# ========================================== #
+#                 メッセージ                  #
+# ========================================== #
+# %prefix% は config.yml で設定したプレフィックスに置き換えられます
+
+no-permission: "%prefix% <red>この操作を行う権限がありません。"
+reloaded: "%prefix% <green>設定ファイルをリロードしました。"
+
+# プライベートメッセージ・SocialSpy
+msg-format-sender: "<gray>[自分 -> %target%] <white>%message%"
+msg-format-receiver: "<gray>[%sender% -> 自分] <white>%message%"
+social-spy-format: "<dark_gray>[Spy] <gray>%sender% -> %target%: <white>%message%"
+social-spy-toggled-on: "%prefix% <green>SocialSpy を有効にしました。"
+social-spy-toggled-off: "%prefix% <red>SocialSpy を無効にしました。"
+player-not-found: "%prefix% <red>プレイヤーが見つかりません。"
+player-cannot-msg-self: "%prefix% <red>自分自身にメッセージを送ることはできません。"
+no-reply-target: "%prefix% <red>返信相手がいません。"
+player-ignored: "%prefix% <green><yellow>%player%</yellow> を無視しました。メッセージは表示されなくなります。"
+player-unignored: "%prefix% <green><yellow>%player%</yellow> の無視を解除しました。"
+cannot-ignore-self: "%prefix% <red>自分自身を無視することはできません。"
+player-ignoring-you: "%prefix% <red>そのプレイヤーにあなたは無視されています。メッセージを送れません。"
+define-player-action: "%prefix% <red>プレイヤーとアクションを指定してください: /%command% <プレイヤー> <メッセージ/コマンド>"
+define-player: "%prefix% <red>プレイヤーを指定してください: /%command% <プレイヤー>"
+define-message: "%prefix% <red>メッセージを指定してください: /%command% <メッセージ>"
+only-players-spy: "%prefix% <red>SocialSpy はプレイヤーのみ使用できます。"
+no-recent-history: "%prefix% <red>%player% のメモリ内に最近の履歴はありません。"
+only-players-ignore: "%prefix% <red>無視機能はプレイヤーのみ使用できます。"
+define-player-page: "%prefix% <red>プレイヤーを指定してください: /%command% <プレイヤー> [ページ]"
+sudo-success: "%prefix% <gray><white>%player% <gray>に <yellow>%action% <gray>を強制実行させました。"
+chatlog-header: "<green>--- <yellow>%player% の履歴 <gray>(ページ %page%/%max%) <green>---"
+broadcast-usage: "%prefix% <red>使い方: /%command% <メッセージ>"
+chat-cleared: "%prefix% <green><yellow>%player%</yellow> がチャットをクリアしました。"
+sudo-exempt: "%prefix% <red>このプレイヤーにsudoを使用することはできません。"
+broadcast-fallback: "<dark_gray>[<red>お知らせ</red>]<dark_gray> » <white>{message}"
+
+# Smart Censor Filter
+censor-mode-partial: "<gray>部分 (例: i***to)"
+censor-mode-full: "<gray>全体 (例: *****)"
+plugin-version: "%prefix% <gray>バージョン: <white>%version%"
+update-checker-disabled: "%prefix% <red>アップデートチェッカーはコンフィグで無効になっています。"
+locate-usage: "%prefix% <red>使い方: /xchat locate <言語>"
+locate-current: "%prefix% <gray>現在の言語: <white>%current%"
+locate-available: "%prefix% <gray>利用可能な言語: <white>%available%"
+locate-success: "%prefix% <green>言語を変更しました: <white>%lang%"
+locate-not-found: "%prefix% <red>言語が見つかりません: <white>%lang%"
+define-msg-target: "%prefix% <red>送信先とメッセージを指定してください: /%command% <プレイヤー> <メッセージ>"
+console-name: "<dark_red><bold>コンソール</bold></dark_red>"
+
+command-help:
+  - "<dark_gray><strikethrough>                                                  "
+  - "<gradient:#00bfff:#1e90ff><bold>X-Chat ヘルプ</bold></gradient>"
+  - ""
+  - " <gray>»</gray> <aqua>/xchat reload</aqua> <dark_gray>-</dark_gray> <gray>YMLファイルをリロードします。</gray>"
+  - " <gray>»</gray> <aqua>/xchat version</aqua> <dark_gray>-</dark_gray> <gray>プラグインのバージョンを表示します。</gray>"
+  - " <gray>»</gray> <aqua>/xchat update</aqua> <dark_gray>-</dark_gray> <gray>アップデートを確認します。</gray>"
+  - " <gray>»</gray> <aqua>/xchat locate <言語></aqua> <dark_gray>-</dark_gray> <gray>プラグインの言語を変更します。</gray>"
+  - "<dark_gray><strikethrough>                                                  "
+
+# アップデート
+update-available: "%prefix% <green>新しいアップデートがあります！ <gray>(%current% -> %latest%)"
+update-download: "%prefix% <green>こちらからダウンロード: <aqua><underlined>%url%"
+update-current: "%prefix% <green>すでに最新バージョンを使用しています。"
+update-error: "%prefix% <red>アップデートの確認中にエラーが発生しました。"
+

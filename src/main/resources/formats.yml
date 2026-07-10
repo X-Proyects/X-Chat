@@ -1,0 +1,37 @@
+# ========================================== #
+#               Chat Formats                  #
+# ========================================== #
+# Each format has a 'priority' field (weight/priority).
+# The format with the HIGHEST priority that the player has permission for will be used.
+#
+# You can change the priority order in config.yml:
+#   higher-is-better: true  -> higher number = more priority (default)
+#   higher-is-better: false -> lower number = more priority
+
+formats:
+  admin:
+    priority: 100
+    permission: "xchat.format.admin"
+    format: "%luckperms_prefix%<red>%player_name% <dark_gray>» <white>{message}"
+    allow-colors:
+      legacy: true
+      hex: true
+      minimessage: true
+
+  vip:
+    priority: 50
+    permission: "xchat.format.vip"
+    format: "%luckperms_prefix%<gradient:#ffaa00:#ffff55>%player_name%</gradient> <dark_gray>» <yellow>{message}"
+    allow-colors:
+      legacy: true
+      hex: true
+      minimessage: false
+
+  default:
+    priority: 1
+    permission: "xchat.format.default"
+    format: "%luckperms_prefix%&7%player_name% <dark_gray>» <gray>{message}"
+    allow-colors:
+      legacy: false
+      hex: false
+      minimessage: false

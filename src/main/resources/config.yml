@@ -1,0 +1,498 @@
+#
+#  __   __     _____
+#  \ \ / /    |  __ \
+#   \ V /_____| |__) |___   ___  _ __ ___  ___
+#    > <______|  _  // _ \ / _ \| '_ ` _ \/ __|
+#   / . \     | | \ \ (_) | (_) | | | | | \__ \
+#  /_/ \_\    |_|  \_\___/ \___/|_| |_| |_|___/
+#
+# ======================================================== #
+#    X-Chat | Advanced Chat Plugin for Minecraft           #
+#    Author: Fabian | Web: https://xproyects.qzz.io        #
+#    Discord: http://discord.xproyects.qzz.io/             #
+# ======================================================== #
+#
+# Supported color formats:
+#   MiniMessage: <red>, <gold>, <bold>, <italic>, <gradient:#ff0000:#00ff00>
+#   Legacy:      &c, &6, &l, &o, etc.
+#   Hex:         &#FF0000 or <#FF0000>
+#   BBCode:      [BOLD], [COLOR=#FF0000], [italic], [underline], [strike]
+#   HTML Short:  <b>, <i>, <u>, <s> (auto-converted to MiniMessage)
+#
+# Requires: PlaceholderAPI + Vault expansion for placeholders like %vault_prefix%
+#   Install: /papi ecloud download Vault -> /papi reload
+#
+# NOTE: Hover and click effects (interactive-name, auto-links, interactive-tags)
+#   require Paper server. On Spigot, these are automatically stripped to plain text.
+
+# Internal config version. DO NOT CHANGE!
+# If this is lower than the plugin's version, the config will auto-update.
+config-code: 7
+
+# Enable debug logging in console (useful for troubleshooting)
+debug: false
+
+# ------------------------------------------------------------------------------
+# UPDATE CHECKER
+# Checks the SpigotMC API for new versions on startup.
+# ------------------------------------------------------------------------------
+updates:
+  # Check for updates when the server starts?
+  check: true
+  # Notify admins on join if an update exists?
+  notify-on-join: true
+
+# ========================================================= #
+#                     General Settings                       #
+# ========================================================= #
+settings:
+  # Global prefix used in plugin messages
+  prefix: "<dark_gray>[<aqua>X-Chat</aqua>]<dark_gray> <reset>"
+
+  # Plugin language (es, en, pt, ja, ru, custom)
+  language: "en"
+
+  # Anonymous metrics via bStats (safe to disable)
+  metrics: true
+
+  # What to do with PlaceholderAPI placeholders that could not be resolved.
+  # 'remove' -> removes them silently (e.g.: "%vault_prefix% Fabian" -> " Fabian")
+  # 'keep'   -> shows them as-is (e.g.: "%vault_prefix% Fabian" -> "%vault_prefix% Fabian")
+  unresolved-placeholders: "remove"
+
+# ========================================================= #
+#              Format Priority Settings                     #
+# ========================================================= #
+# Controls how format priority (weight) works in formats.yml.
+# Each format has a 'priority' field (a number).
+#
+# higher-is-better: true  -> higher number = more priority (e.g.: admin=100 > vip=50 > default=1)
+# higher-is-better: false -> lower number = more priority  (e.g.: admin=1 > vip=50 > default=100)
+format-priority:
+  higher-is-better: true
+
+# ========================================================= #
+#                   Global Permissions                      #
+# ========================================================= #
+# Master permissions that grant access to plugin features.
+general-permissions:
+  # Master permission to use ALL color types in chat (legacy, hex, MiniMessage).
+  # Overrides the allow-colors settings of individual formats.
+  all-colors: "xchat.colors"
+  # Master permission to use ALL interactive tags (click, hover, insert, font, item, pos, ping).
+  all-tags: "xchat.tags.all"
+
+# ========================================================= #
+#              Join / Leave Messages                        #
+# ========================================================= #
+# Custom messages when a player joins or leaves the server.
+# Supports MiniMessage and PlaceholderAPI.
+join-leave:
+  join:
+    enabled: true
+    # Message on join. Use %player_name% for the player's name.
+    message: "<dark_gray>[<green>+<dark_gray>] <gradient:#00bfff:#1e90ff><bold>%player_name%</bold></gradient> <gray>has joined the server!"
+    # If 'true', cancels the default Bukkit/Paper join message.
+    cancel-default: true
+
+  leave:
+    enabled: true
+    # Message on leave. Use %player_name% for the player's name.
+    message: "<dark_gray>[<red>-<dark_gray>] <gradient:#00bfff:#1e90ff><bold>%player_name%</bold></gradient> <gray>has left the server."
+    # If 'true', cancels the default Bukkit/Paper leave message.
+    cancel-default: true
+
+  first-join:
+    enabled: true
+    # Special message for first-time players.
+    # Shown BEFORE the regular join message.
+    message: "<dark_gray>[<gold>★<dark_gray>] <gradient:#ffaa00:#ffff55><bold>%player_name%</bold></gradient> <yellow>joined the server for the first time! Welcome!"
+
+# ========================================================= #
+#                   Chat Features                            #
+# ========================================================= #
+chat-settings:
+  # ── Interactive Name (Hover & Click on player name) ──
+  # Applies hover and click effects to the player's name in chat.
+  # Works with ALL formats defined in formats.yml.
+  #
+  # WARNING: Requires Paper server! On Spigot, hover and click
+  #   effects are automatically stripped to plain text.
+  interactive-name:
+    enabled: true
+    # Lines displayed when hovering over the player's name.
+    # Use <newline> to separate lines.
+    # Supports PlaceholderAPI: %vault_prefix%, %player_ping%, etc.
+    hover-text:
+      - "<gradient:#00bfff:#1e90ff><bold>%player_name%</bold></gradient>"
+      - "<gray>Rank: <white>%vault_prefix%</white>"
+      - "<gray>Ping: <green>%player_ping%ms"
+      - ""
+      - "<yellow>Click to send a private message!"
+    # Action when clicking on the player's name.
+    # Options: SUGGEST_COMMAND, RUN_COMMAND, OPEN_URL, COPY_TO_CLIPBOARD
+    click-action: "SUGGEST_COMMAND"
+    # Value for the action (depends on click-action).
+    # With SUGGEST_COMMAND: suggests the command in the chat bar.
+    click-value: "/msg %player_name% "
+
+  # ── Auto-Mentions ──
+  # Detects when a player mentions another player by name in chat.
+  # The mentioned player's name is highlighted with a custom format.
+  mentions:
+    enabled: true
+
+    # If 'false', detects the name without needing "@".
+    # Example: "Hello fabian how are you" -> detects "fabian"
+    # If 'true', requires "@" before the name.
+    # Example: "Hello @fabian how are you" -> detects "fabian"
+    require-symbol: false
+    # Required symbol (only used if require-symbol is true)
+    symbol: "@"
+
+    # Format applied to the mentioned player's name inside the message.
+    # %player% is replaced with the mentioned player's name.
+    format: "<gradient:#00ff88:#00bbaa><bold>%player%</bold></gradient>"
+
+    # Sound played to the mentioned player.
+    # Sound list: https://hub.spigotmc.org/javadocs/bukkit/org/bukkit/Sound.html
+    sound: "ENTITY_EXPERIENCE_ORB_PICKUP"
+    # Sound volume (0.0 to 1.0)
+    volume: 1.0
+    # Sound pitch (0.5 to 2.0, 1.0 = normal)
+    pitch: 1.5
+
+  # ── Auto-Links ──
+  # Automatically converts URLs into clickable links in chat.
+  #
+  # WARNING: Requires Paper server! On Spigot, hover and click
+  #   effects on links are automatically stripped to plain text.
+  auto-links:
+    enabled: true
+    # Text shown when hovering over the link.
+    hover-text: "<yellow>Click to visit the link!"
+
+  # ── MiniMessage Interactive Tags ──
+  # Allows players to use interactive MiniMessage tags in chat messages.
+  # WARNING: Enabling these in public chat can be DANGEROUS.
+  #   A malicious player could create fake links or execute commands.
+  # It is recommended to keep everything disabled unless this is a trusted server.
+  #
+  # WARNING: Requires Paper server! On Spigot, hover, click, insert,
+  #   and font tags are automatically stripped to plain text.
+  interactive-tags:
+    click:
+      # Allows <click:open_url:'...'> and <click:run_command:'...'>
+      enabled: false
+      permission: "xchat.tags.click"
+    hover:
+      # Allows <hover:show_text:'...'>
+      enabled: false
+      permission: "xchat.tags.hover"
+    insert:
+      # Allows <insert:'text'> (inserts text on shift+click)
+      enabled: false
+      permission: "xchat.tags.insert"
+    font:
+      # Allows changing text font with <font:'minecraft:...'>
+      enabled: false
+      permission: "xchat.tags.font"
+
+  # ── Custom Emojis ──
+  # Custom emoji system. Players can use text shortcuts that are
+  # converted into emojis or formatted text.
+  emojis:
+    enabled: true
+    # If 'true', players need the permission below to use emojis.
+    # If 'false', anyone can use them.
+    require-permission: true
+    # Required permission (only if require-permission is true)
+    permission: "xchat.emojis"
+    # Emoji list: "text shortcut" -> "result in chat"
+    # The result supports MiniMessage for colors and formatting.
+    list:
+      "<3": "<red>❤</red>"
+      ":)": "☺"
+      ":star:": "<yellow>⭐</yellow>"
+      ":check:": "<green>✔</green>"
+      ":warning:": "<gold>⚠</gold>"
+
+  # ── Auto-Grammar ──
+  # Automatically corrects basic grammar in messages.
+  auto-grammar:
+    enabled: false
+    # Capitalizes the first letter of each message.
+    # Example: "hello everyone" -> "Hello everyone"
+    capitalize-first: true
+    # Adds a period at the end if there is no punctuation.
+    # Example: "hello" -> "hello."
+    # Does not add if message already ends with . ! ? : )
+    add-period: true
+    # Permission to bypass auto-grammar.
+    bypass-permission: "xchat.bypass.grammar"
+
+  # ── Dynamic Tags ──
+  # Master switch for all dynamic tags ([item], [pos], [ping]).
+  # If set to false, they are ALL disabled regardless of their individual .yml files.
+  # Configuration files: tags/item.yml, tags/pos.yml, tags/ping.yml
+  custom-tags:
+    enabled: true
+
+  # ── Placeholders in Chat Message ──
+  # Allows players to use PlaceholderAPI placeholders in their chat messages.
+  # Requires PlaceholderAPI installed with the corresponding expansions.
+  #
+  # Usage examples:
+  #   "My ping is %player_ping%ms"  ->  "My ping is 45ms"
+  #   "Position: %player_x%, %player_y%, %player_z%"  ->  "Position: 120, 64, -300"
+  #   "Server: %server_name% - Online: %server_online%"  ->  "Server: Survival - Online: 42"
+  #
+  # Common placeholders (require PAPI expansions):
+  #   %player_ping%    -> Player's ping (expansion: Player)
+  #   %player_x%       -> X coordinate (expansion: Player)
+  #   %server_online%  -> Online players (expansion: Server)
+  #   %vault_prefix%   -> Rank prefix (expansion: Vault)
+  placeholders-in-message:
+    enabled: true
+    # Permission required to use placeholders in messages.
+    permission: "xchat.placeholders"
+
+  # ── Friendly Errors ──
+  # Controls how the plugin handles player errors.
+  # Instead of showing ugly server errors, players get clean and
+  # friendly messages that guide them to the correct usage.
+  errors:
+    # Show friendly error messages for unknown commands.
+    # If true, players get a clean message instead of ugly server errors.
+    # If false, the default Bukkit "Unknown command" message is shown.
+    friendly-errors: true
+    # Message shown when a player uses a command that does not exist.
+    # Placeholders:
+    #   %command% — the command name the player typed (without the slash)
+    # Supports MiniMessage colors and %prefix% placeholder.
+    # Leave empty ("") to send nothing (silent cancellation).
+    unknown-command: "%prefix% <red>Command not found: <yellow>/%command%</yellow>. Use <aqua>/xchat help</aqua> to see available commands."
+
+# ========================================================= #
+#                   Filters & Moderation                    #
+# ========================================================= #
+filters:
+  # ── Anti-Spam ──
+  # Limits how fast a player can send messages in public chat.
+  # If a player sends a message before the delay expires, the message is cancelled
+  # and they receive the warning message below.
+  # This does NOT affect private messages (/msg, /r).
+  anti-spam:
+    enabled: true
+    # Minimum time between messages (in seconds).
+    # If a player types faster than this, the message is blocked.
+    # Examples: 1 = very permissive, 3 = balanced (default), 5 = strict
+    delay-seconds: 3
+    # Permission to bypass this filter (players with this permission can spam freely).
+    bypass-permission: "xchat.bypass.spam"
+    # Message sent to the player when they send messages too quickly.
+    # %time% is replaced with the remaining seconds they must wait.
+    # Leave empty ("") to send nothing (silent cancellation).
+    message: "%prefix% <red>You are typing too fast. Please wait <yellow>%time%s</yellow>."
+
+  # ── Anti-Caps ──
+  # Detects and corrects/blocks messages with too many capital letters.
+  anti-caps:
+    enabled: true
+    # Minimum message length to trigger this filter.
+    min-length: 5
+    # Maximum percentage of capital letters allowed (0-100).
+    max-percent: 70
+    # Action: 'lowercase' (converts to lowercase) or 'block' (blocks the message).
+    action: "lowercase"
+    # Permission to bypass this filter.
+    bypass-permission: "xchat.bypass.caps"
+    # Message sent to the player if their message was blocked or modified.
+    message: "%prefix% <red>Please do not use so many capital letters."
+
+  # ── Anti-Advertising ──
+  # Detects and blocks/warns messages containing IPs or Discord links.
+  anti-advertising:
+    enabled: true
+    # Permission to bypass this filter.
+    bypass-permission: "xchat.bypass.advertising"
+    # Action: 'block' (cancels the message) or 'warn' (allows message but warns the player).
+    action: "block"
+    # Message sent to the player when advertising is detected.
+    # Use %prefix% for the plugin prefix.
+    message: "%prefix% <red>Advertising is not allowed on this server."
+    # Regex patterns to detect IPs and Discord links.
+    # You can add more patterns as needed.
+    patterns:
+      - "\\d{1,3}[.\\s]+\\d{1,3}[.\\s]+\\d{1,3}[.\\s]+\\d{1,3}"
+      - "(?i)discord[.\\s]*(gg|com)[/\\s]*\\S+"
+
+  # ── Smart Censor Filter ──
+  # Automatically censors inappropriate words in messages.
+  # Two censor modes available: partial and full.
+  blocked-words:
+    enabled: true
+    # Censor mode:
+    #   'partial' -> replaces middle letters with *, keeps first and last letter.
+    #              Example: "word" -> "w**d"
+    #   'full'    -> replaces the entire word with asterisks.
+    #              Example: "word" -> "****"
+    mode: "partial"
+    # Permission to bypass this filter.
+    bypass-permission: "xchat.bypass.blocked-words"
+    # List of blocked words. Detection is case-insensitive.
+    # Add as many words as you need.
+    words:
+      - "badword1"
+      - "another_server_ip"
+    # Warning message sent to the player when a word is censored.
+    # %mode% is replaced with the mode description (partial/full).
+    message: "%prefix% <red>Your message contained censored words. (Mode: %mode%)"
+
+# ========================================================= #
+#                   Broadcast Settings                      #
+# ========================================================= #
+# Configuration for the /broadcast command (or /bc)
+broadcast-settings:
+  # Broadcast design. Can be a single line or a list of lines.
+  # Supports MiniMessage and PlaceholderAPI.
+  format:
+    - ""
+    - "<dark_gray>[<red>Announcement</red>]<dark_gray> » <white>{message}"
+    - ""
+
+  # Should /broadcast send to other servers via Redis? (requires cross-server enabled)
+  # Individual auto-announcements in announcements.yml can override this with their own cross-server option.
+  cross-server: true
+
+  # Show the server prefix on other servers when using /broadcast?
+  show-server-prefix: true
+
+# ========================================================= #
+#                   Chat History                            #
+# ========================================================= #
+# Chat history system saved in memory and disk.
+# Used with the /chatlog or /history command.
+chat-history:
+  enabled: true
+  # Date/time format. Uses Java SimpleDateFormat.
+  # Docs: https://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html
+  timestamp-format: "yyyy-MM-dd HH:mm:ss"
+  # Maximum messages saved per player in memory.
+  max-messages: 100
+  # Save interval to disk in seconds (0 = save on every message).
+  save-interval: 300
+
+# ========================================================= #
+#                   Custom Commands                         #
+# ========================================================= #
+# Here you can redefine command names and aliases.
+# The plugin registers these commands dynamically on startup.
+# Changes require /xchat reload to take effect.
+#
+# Commands with empty permission ("") are usable by ALL players.
+commands:
+  # Private messages — usable by all players
+  msg:
+    name: "msg"
+    aliases:
+      - "tell"
+      - "w"
+      - "whisper"
+    permission: ""
+  # Reply to the last private message — usable by all players
+  reply:
+    name: "r"
+    aliases:
+      - "reply"
+    permission: ""
+  # Clear the chat
+  clear-chat:
+    name: "clearchat"
+    aliases:
+      - "cc"
+      - "chatclear"
+    permission: "xchat.command.clear"
+  # Spy on private messages
+  social-spy:
+    name: "socialspy"
+    aliases:
+      - "spy"
+    permission: "xchat.command.spy"
+  # Ignore players
+  ignore:
+    name: "ignore"
+    aliases:
+      - "blockplayer"
+      - "silence"
+    permission: "xchat.command.ignore"
+  # Force a player to execute a command
+  sudo:
+    name: "sudo"
+    aliases:
+      - "force"
+    permission: "xchat.command.sudo"
+  # View a player's chat history
+  chatlog:
+    name: "chatlog"
+    aliases:
+      - "history"
+    permission: "xchat.command.history"
+  # Global announcement to all players
+  broadcast:
+    name: "broadcast"
+    aliases:
+      - "bc"
+      - "alert"
+    permission: "xchat.command.broadcast"
+
+# ========================================================= #
+#              Cross-Server Settings                    #
+# ========================================================= #
+# Enables Redis/MySQL for cross-server chat, PM, spy, and ignore.
+# If storage is "yaml" (default), the plugin works exactly as before (single-server).
+#
+# Storage options:
+#   "yaml"   — Default, no external database. Single-server only.
+#   "redis"  — Redis for storage AND messaging (pub/sub).
+#   "mysql"  — MySQL for persistent storage. No cross-server messaging unless Redis is also configured.
+#   "both"   — MySQL for persistent storage + Redis for pub/sub messaging. Recommended for production.
+cross-server:
+  # Unique name for this server (shown in cross-server messages and used to avoid loops)
+  server-name: "lobby"
+
+  # Storage backend: yaml, redis, mysql, both
+  storage: "yaml"
+
+  # Redis configuration (used when storage is "redis" or "both")
+  redis:
+    host: "localhost"
+    port: 6379
+    password: ""
+    database: 0
+
+  # MySQL configuration (used when storage is "mysql" or "both")
+  mysql:
+    host: "localhost"
+    port: 3306
+    database: "xchat"
+    username: "root"
+    password: ""
+
+  # Cross-server messaging (requires Redis)
+  messaging:
+    enabled: true
+
+  # Server prefix shown on cross-server messages
+  # Controls the [ServerName] prefix that appears before messages from other servers
+  server-prefix:
+    # Enable or disable the server prefix
+    enabled: true
+    # Format of the prefix. {server} is replaced with the server name.
+    # Uses legacy & color codes.
+    format: "&8[&e{server}&8] "
+
+  # Cross-server join/quit messages
+  # When enabled, join and quit messages from other servers are displayed
+  join-quit:
+    enabled: true
