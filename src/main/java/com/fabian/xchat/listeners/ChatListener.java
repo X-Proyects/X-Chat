@@ -4,8 +4,13 @@ import com.fabian.xchat.XChat;
 import com.fabian.xchat.utils.ColorUtils;
 import com.fabian.xchat.utils.DebugLogger;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.ConfigurationSection;
@@ -17,6 +22,7 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SuppressWarnings("deprecation")
@@ -32,6 +38,10 @@ public class ChatListener implements Listener {
     private static final Pattern INSERT_TAG_PATTERN = Pattern.compile("<[/]?(?i)(insert)[^>]*>");
     private static final Pattern FONT_TAG_PATTERN = Pattern.compile("<[/]?(?i)(font)[^>]*>");
     private static final Pattern DANGEROUS_TAG_PATTERN = Pattern.compile("<[/]?(?i)(click|hover|insert|font)[^>]*>");
+
+    // Prefix for placeholders injected by interactive features (links, mentions, item tags)
+    // Using a unique prefix avoids conflicts with player text or other MiniMessage tags.
+    private static final String IPC_PREFIX = "xchat_";
 
     private final XChat plugin;
     private final Map<UUID, Long> lastMessageTime = new ConcurrentHashMap<>();
@@ -197,6 +207,15 @@ public class ChatListener implements Listener {
             rawMessage = ColorUtils.applyPapi(player, rawMessage);
         }
 
+        // Step 4.6: Convert authorized legacy/hex codes to MiniMessage BEFORE system tags
+        // (custom tags, mentions, auto-links) are added. This prevents convertLegacyAndHex
+        // from corrupting system-generated MiniMessage tags or & inside URLs.
+        if (allowLegacy || allowHex) {
+            rawMessage = protectAmpersandsInUrls(rawMessage);
+            rawMessage = ColorUtils.convertLegacyAndHex(rawMessage);
+            rawMessage = rawMessage.replace('\u0000', '&');
+        }
+
         // Step 5: Apply emojis to the message
         if (plugin.getConfig().getBoolean("chat-settings.emojis.enabled", false)) {
             boolean requirePerm = plugin.getConfig().getBoolean("chat-settings.emojis.require-permission", true);
@@ -212,21 +231,23 @@ public class ChatListener implements Listener {
         }
 
         // Step 6: Process dynamic tags [item], [pos], [ping]
+        // TagsManager returns the modified message + Component placeholders for interactive tags (item hover)
+        List<TagResolver> interactiveResolvers = new ArrayList<>();
         if (plugin.getConfig().getBoolean("chat-settings.custom-tags.enabled", true)) {
-            rawMessage = plugin.getTagsManager().processTags(player, rawMessage);
+            rawMessage = plugin.getTagsManager().processTags(player, rawMessage, interactiveResolvers);
         }
 
         // Save pre-mention raw text for cross-server mention sound detection (plain player names)
         String preMentionRaw = rawMessage;
 
-        // Step 7: Process mentions
+        // Step 7: Process mentions — build mention Components via Adventure API directly
         if (plugin.getConfig().getBoolean("chat-settings.mentions.enabled")) {
-            rawMessage = processMentions(player, rawMessage);
+            rawMessage = processMentions(player, rawMessage, interactiveResolvers);
         }
 
-        // Step 8: Auto-Links
+        // Step 8: Auto-Links — build link Components via Adventure API directly
         if (plugin.getConfig().getBoolean("chat-settings.auto-links.enabled", true)) {
-            rawMessage = processAutoLinks(rawMessage);
+            rawMessage = processAutoLinks(rawMessage, interactiveResolvers);
         }
 
         // Step 9: Apply interactive name hover/click to format string
@@ -235,25 +256,7 @@ public class ChatListener implements Listener {
         }
 
         // Step 10: Build final Component via MiniMessage deserialization
-        Component finalComponent = buildFinalComponent(player, formatString, rawMessage, allowMini);
-
-        // ── Cross-Server MiniMessage Strings ──
-        // Build MiniMessage source strings for cross-server transfer.
-        // This preserves ALL rich formatting (colors, hover, click, gradients) unlike JSON serialization.
-        String mmFormat = null;
-        String mmRaw = null;
-        if (allowMini) {
-            // Build MiniMessage format string (mirrors buildFinalComponent logic)
-            String mmFormatStr = formatString.replace("%player_name%", player.getName());
-            mmFormatStr = ColorUtils.applyPapi(player, mmFormatStr);
-            mmFormatStr = ColorUtils.convertLegacyAndHex(mmFormatStr);
-            mmFormatStr = mmFormatStr.replace("{message}", "<message>");
-            mmFormat = mmFormatStr;
-
-            // Build MiniMessage raw message string (with mentions, auto-links, tags)
-            String protectedMsg = protectAmpersandsInAttributes(rawMessage);
-            mmRaw = ColorUtils.convertLegacyAndHex(protectedMsg).replace('\u0000', '&');
-        }
+        Component finalComponent = buildFinalComponent(player, formatString, rawMessage, allowMini, interactiveResolvers);
 
         // ══════════════════════════════════════════════════
         //  OUTPUT
@@ -288,16 +291,23 @@ public class ChatListener implements Listener {
                     plugin.getServerName(), finalStringForHistory);
         }
 
+        // ── Cross-Server Payload ──
+        // JSON Component (preserves ALL data: colors, hover, click, gradients) + legacy fallback + pre-mention text
+        String jsonComponent = null;
+        try {
+            jsonComponent = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson().serialize(finalComponent);
+        } catch (Throwable t) {
+            DebugLogger.debug("ChatListener", "Failed to serialize component to JSON for cross-server", t);
+        }
+
         // Publish to cross-server (Redis pub/sub)
         if (plugin.getMessagingService() != null && plugin.getMessagingService().isEnabled()) {
-            // Cross-server payload format (4 lines, newline-delimited):
-            //   Line 1: legacy formatted message (§-coded, Spigot fallback)
-            //   Line 2: MiniMessage format string (with <message> placeholder) or empty
-            //   Line 3: MiniMessage raw message text (with mentions/links/tags) or empty
-            //   Line 4: pre-mention plain text (for cross-server mention sound detection)
+            // Payload format (3 lines, newline-delimited):
+            //   Line 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
+            //   Line 2: JSON serialized Component (full hover/click/format preservation) or empty
+            //   Line 3: pre-mention plain text (for cross-server mention sound detection)
             String crossServerPayload = legacyOutput
-                    + "\n" + (mmFormat != null ? mmFormat : "")
-                    + "\n" + (mmRaw != null ? mmRaw : "")
+                    + "\n" + (jsonComponent != null ? jsonComponent : "")
                     + "\n" + preMentionRaw;
 
             plugin.getMessagingService().publish("chat", player.getName(),
@@ -380,12 +390,24 @@ public class ChatListener implements Listener {
     }
 
     // ──────────────────────────────────────────────────────
-    //  MENTIONS
+    //  MENTIONS (Component-based — bypasses MiniMessage string parsing)
     // ──────────────────────────────────────────────────────
-    private String processMentions(Player player, String message) {
+    /**
+     * Processes player mentions in the message.
+     * Instead of embedding MiniMessage strings (which may fail to parse), builds mention
+     * Components directly via Adventure API and injects them as MiniMessage placeholders.
+     *
+     * @param player    the sender
+     * @param message   the chat message (may be modified — mentions replaced with placeholders)
+     * @param resolvers list to which mention Component placeholders are added
+     * @return the modified message with mention text replaced by placeholders
+     */
+    private String processMentions(Player player, String message, List<TagResolver> resolvers) {
         boolean requireSymbol = plugin.getConfig().getBoolean("chat-settings.mentions.require-symbol", false);
         String symbol = plugin.getConfig().getString("chat-settings.mentions.symbol", "@");
         String mentionFormat = plugin.getConfig().getString("chat-settings.mentions.format", "<yellow>%player%</yellow>");
+        // Ensure mention format is MiniMessage (convert & codes if config uses them)
+        mentionFormat = ColorUtils.convertLegacyAndHex(mentionFormat);
 
         List<Player> onlinePlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
         // Sort by display name length (descending) so longer matches take priority
@@ -394,6 +416,7 @@ public class ChatListener implements Listener {
                 org.bukkit.ChatColor.stripColor(p2.getDisplayName()).length(),
                 org.bukkit.ChatColor.stripColor(p1.getDisplayName()).length()));
 
+        int mentionIndex = 0;
         for (Player target : onlinePlayers) {
             // Skip the sender: you cannot tag yourself
             if (target.equals(player)) continue;
@@ -407,59 +430,134 @@ public class ChatListener implements Listener {
 
             String trigger = requireSymbol ? Pattern.quote(symbol + matchText) : "\\b" + Pattern.quote(matchText) + "\\b";
             Pattern pattern = Pattern.compile(trigger, Pattern.CASE_INSENSITIVE);
-            java.util.regex.Matcher matcher = pattern.matcher(message);
+            Matcher matcher = pattern.matcher(message);
             if (matcher.find()) {
-                message = matcher.replaceAll(java.util.regex.Matcher.quoteReplacement(mentionFormat.replace("%player%", matchText)));
-                try {
-                    org.bukkit.Sound sound = org.bukkit.Sound.valueOf(plugin.getConfig().getString("chat-settings.mentions.sound", "ENTITY_EXPERIENCE_ORB_PICKUP"));
-                    float vol = (float) plugin.getConfig().getDouble("chat-settings.mentions.volume", 1.0);
-                    float pitch = (float) plugin.getConfig().getDouble("chat-settings.mentions.pitch", 1.5);
-                    target.playSound(target.getLocation(), sound, vol, pitch);
-                } catch (Exception ignored) {}
-                continue; // Already matched, skip the shorter name check
+                // Build the mention Component directly via Adventure API
+                Component mentionComp = buildMentionComponent(mentionFormat, matchText);
+                String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
+                resolvers.add(Placeholder.component(placeholderName, mentionComp));
+                message = matcher.replaceAll(Matcher.quoteReplacement("<" + placeholderName + ">"));
+
+                // Play mention sound for the target
+                playMentionSound(target);
+                continue;
             }
 
             // Also try just the player name (without prefix)
             if (!matchText.equals(name)) {
                 String nameTrigger = requireSymbol ? Pattern.quote(symbol + name) : "\\b" + Pattern.quote(name) + "\\b";
                 Pattern namePattern = Pattern.compile(nameTrigger, Pattern.CASE_INSENSITIVE);
-                java.util.regex.Matcher nameMatcher = namePattern.matcher(message);
+                Matcher nameMatcher = namePattern.matcher(message);
                 if (nameMatcher.find()) {
-                    message = nameMatcher.replaceAll(java.util.regex.Matcher.quoteReplacement(mentionFormat.replace("%player%", name)));
-                    try {
-                        org.bukkit.Sound sound = org.bukkit.Sound.valueOf(plugin.getConfig().getString("chat-settings.mentions.sound", "ENTITY_EXPERIENCE_ORB_PICKUP"));
-                        float vol = (float) plugin.getConfig().getDouble("chat-settings.mentions.volume", 1.0);
-                        float pitch = (float) plugin.getConfig().getDouble("chat-settings.mentions.pitch", 1.5);
-                        target.playSound(target.getLocation(), sound, vol, pitch);
-                    } catch (Exception ignored) {}
+                    Component mentionComp = buildMentionComponent(mentionFormat, name);
+                    String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
+                    resolvers.add(Placeholder.component(placeholderName, mentionComp));
+                    message = nameMatcher.replaceAll(Matcher.quoteReplacement("<" + placeholderName + ">"));
+
+                    playMentionSound(target);
                 }
             }
         }
         return message;
     }
 
+    /**
+     * Builds a mention Component by parsing the mention format with MiniMessage
+     * and replacing %player% with the actual name. The format is a simple
+     * color/style string (no complex nested tags), so MiniMessage parsing is safe here.
+     */
+    private Component buildMentionComponent(String mentionFormat, String playerName) {
+        String resolved = mentionFormat.replace("%player%", playerName);
+        try {
+            return miniMessage.deserialize(resolved);
+        } catch (Exception e) {
+            // Fallback: plain colored name
+            DebugLogger.debug("ChatListener", "Failed to parse mention format, using fallback: " + resolved, e);
+            return Component.text(playerName, net.kyori.adventure.text.format.NamedTextColor.YELLOW);
+        }
+    }
+
+    /**
+     * Plays the mention sound for a target player.
+     */
+    private void playMentionSound(Player target) {
+        try {
+            org.bukkit.Sound sound = org.bukkit.Sound.valueOf(plugin.getConfig().getString("chat-settings.mentions.sound", "ENTITY_EXPERIENCE_ORB_PICKUP"));
+            float vol = (float) plugin.getConfig().getDouble("chat-settings.mentions.volume", 1.0);
+            float pitch = (float) plugin.getConfig().getDouble("chat-settings.mentions.pitch", 1.5);
+            target.playSound(target.getLocation(), sound, vol, pitch);
+        } catch (Exception ignored) {}
+    }
+
     // ──────────────────────────────────────────────────────
-    //  AUTO-LINKS
+    //  AUTO-LINKS (Component-based — bypasses MiniMessage string parsing)
     // ──────────────────────────────────────────────────────
-    private String processAutoLinks(String message) {
-        java.util.regex.Matcher urlMatcher = URL_PATTERN.matcher(message);
+    /**
+     * Processes URLs in the message and makes them clickable.
+     * Instead of embedding MiniMessage click/hover strings (which may fail to parse),
+     * builds link Components directly via Adventure API and injects them as placeholders.
+     *
+     * @param message   the chat message (modified — URLs replaced with placeholders)
+     * @param resolvers list to which link Component placeholders are added
+     * @return the modified message with URLs replaced by placeholders
+     */
+    private String processAutoLinks(String message, List<TagResolver> resolvers) {
+        Matcher urlMatcher = URL_PATTERN.matcher(message);
         StringBuffer sb = new StringBuffer();
-        // Only add hover/click on Paper servers — on Spigot they show as raw tags
         boolean isPaper = ColorUtils.isPaperAdventureAvailable();
-        String linkHover = plugin.getConfig().getString("chat-settings.auto-links.hover-text", "<yellow>Click to visit the link!");
+        int linkIndex = 0;
+
+        // Build hover Component from config (parse once, reuse for all links)
+        Component hoverComp = buildLinkHoverComponent();
+
         while (urlMatcher.find()) {
             String url = urlMatcher.group();
             String clickUrl = url.startsWith("http") ? url : "http://" + url;
-            String replacement;
-            if (isPaper) {
-                replacement = "<click:open_url:'" + clickUrl + "'><hover:show_text:'" + linkHover + "'><underlined>" + url + "</underlined></hover></click>";
+
+            // Build link Component directly via Adventure API
+            Component linkComp;
+            if (isPaper && hoverComp != null) {
+                linkComp = Component.text(url)
+                        .style(Style.style()
+                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
+                                .clickEvent(ClickEvent.openUrl(clickUrl))
+                                .hoverEvent(HoverEvent.showText(hoverComp)));
+            } else if (isPaper) {
+                // Paper but no hover configured
+                linkComp = Component.text(url)
+                        .style(Style.style()
+                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
+                                .clickEvent(ClickEvent.openUrl(clickUrl)));
             } else {
-                replacement = "<underlined><blue>" + url + "</blue></underlined>";
+                // Spigot: no click/hover support, just underline and color
+                linkComp = Component.text(url)
+                        .style(Style.style()
+                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
+                                .color(net.kyori.adventure.text.format.NamedTextColor.BLUE));
             }
-            urlMatcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement));
+
+            String placeholderName = IPC_PREFIX + "l" + (linkIndex++);
+            resolvers.add(Placeholder.component(placeholderName, linkComp));
+            urlMatcher.appendReplacement(sb, Matcher.quoteReplacement("<" + placeholderName + ">"));
         }
         urlMatcher.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Builds the hover Component for links from config.
+     * Parsed once and reused for all links in the message.
+     */
+    private Component buildLinkHoverComponent() {
+        String linkHoverStr = plugin.getConfig().getString("chat-settings.auto-links.hover-text", "");
+        if (linkHoverStr == null || linkHoverStr.isEmpty()) return null;
+        linkHoverStr = ColorUtils.convertLegacyAndHex(linkHoverStr);
+        try {
+            return miniMessage.deserialize(linkHoverStr);
+        } catch (Exception e) {
+            DebugLogger.debug("ChatListener", "Failed to parse link hover text, using plain text", e);
+            return Component.text("Click to visit the link!");
+        }
     }
 
     // ──────────────────────────────────────────────────────
@@ -471,24 +569,74 @@ public class ChatListener implements Listener {
         String playerName = player.getName();
         String clickValue = plugin.getConfig().getString("chat-settings.interactive-name.click-value", "/msg %player_name% ");
 
-        StringBuilder hoverBuilder = new StringBuilder();
-        for (String line : hoverLines) {
-            // Replace %player_name% in hover/click text with the actual name
-            String resolved = line.replace("%player_name%", playerName);
-            resolved = ColorUtils.applyPapi(player, resolved);
-            if (hoverBuilder.length() > 0) hoverBuilder.append("<newline>");
-            hoverBuilder.append(resolved);
-        }
-        String hoverText = hoverBuilder.toString();
+        // Build hover Component directly via Adventure API
+        Component hoverComp = buildInteractiveNameHover(player, hoverLines);
 
-        // Resolve %player_name% in click-value too
+        // Build click event
         String resolvedClickValue = clickValue.replace("%player_name%", playerName);
-
         String clickAction = plugin.getConfig().getString("chat-settings.interactive-name.click-action", "SUGGEST_COMMAND");
-        // Use a unique placeholder that won't conflict with the normal %player_name% replacement.
-        // buildFinalComponent() will NOT replace this — we use the actual name directly.
-        String wrappedName = "<hover:show_text:'" + hoverText + "'><click:" + clickAction.toLowerCase() + ":'" + resolvedClickValue + "'>" + playerName + "</click></hover>";
-        return format.replace("%player_name%", wrappedName);
+
+        ClickEvent clickEvent;
+        switch (clickAction.toUpperCase()) {
+            case "RUN_COMMAND":
+                clickEvent = ClickEvent.runCommand(resolvedClickValue);
+                break;
+            case "OPEN_URL":
+                clickEvent = ClickEvent.openUrl(resolvedClickValue);
+                break;
+            case "COPY_TO_CLIPBOARD":
+                clickEvent = ClickEvent.copyToClipboard(resolvedClickValue);
+                break;
+            default: // SUGGEST_COMMAND
+                clickEvent = ClickEvent.suggestCommand(resolvedClickValue);
+                break;
+        }
+
+        // Build the name Component with hover and click
+        Component nameComp = Component.text(playerName)
+                .style(Style.style()
+                        .hoverEvent(hoverComp != null ? HoverEvent.showText(hoverComp) : null)
+                        .clickEvent(clickEvent));
+
+        // Replace %player_name% in format with a MiniMessage placeholder
+        // We use a unique placeholder name and pass the Component via TagResolver
+        String placeholderName = IPC_PREFIX + "name";
+        // Store the name component for later use in buildFinalComponent
+        this._interactiveNameResolver = Placeholder.component(placeholderName, nameComp);
+        return format.replace("%player_name%", "<" + placeholderName + ">");
+    }
+
+    // Transient field to pass the interactive name resolver to buildFinalComponent
+    private TagResolver _interactiveNameResolver = null;
+
+    /**
+     * Builds the hover Component for interactive player names from config lines.
+     */
+    private Component buildInteractiveNameHover(Player player, List<String> hoverLines) {
+        if (hoverLines == null || hoverLines.isEmpty()) return null;
+
+        // Parse all hover lines as MiniMessage and combine with newlines
+        List<Component> lines = new ArrayList<>();
+        for (String line : hoverLines) {
+            String resolved = line.replace("%player_name%", player.getName());
+            resolved = ColorUtils.applyPapi(player, resolved);
+            resolved = ColorUtils.convertLegacyAndHex(resolved);
+            try {
+                lines.add(miniMessage.deserialize(resolved));
+            } catch (Exception e) {
+                lines.add(Component.text(resolved));
+            }
+        }
+
+        if (lines.size() == 1) return lines.get(0);
+
+        // Combine multiple lines with newline
+        net.kyori.adventure.text.TextComponent.Builder builder = Component.text();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i > 0) builder.append(Component.newline());
+            builder.append(lines.get(i));
+        }
+        return builder.asComponent();
     }
 
     // ──────────────────────────────────────────────────────
@@ -499,75 +647,78 @@ public class ChatListener implements Listener {
      *   1. Replacing %player_name% in the format string
      *   2. Applying PlaceholderAPI for any %placeholder% patterns
      *   3. Converting any legacy/hex codes to MiniMessage format
-     *   4. Injecting the message as a safe Component (plain or MiniMessage-parsed)
+     *   4. Injecting the message and all interactive Component placeholders
      *   5. Deserializing via MiniMessage to produce the final Component
+     *
+     * @param extraResolvers additional TagResolvers for links, mentions, item tags, etc.
      */
-    private Component buildFinalComponent(Player player, String format, String message, boolean parseMiniInMessage) {
-        // Replace built-in placeholders
-        String playerName = player != null ? player.getName() : "Console";
-        format = format.replace("%player_name%", playerName);
+    private Component buildFinalComponent(Player player, String format, String message,
+                                          boolean parseMiniInMessage, List<TagResolver> extraResolvers) {
+        // Replace built-in placeholders (only if not already replaced by interactive name)
+        if (_interactiveNameResolver == null) {
+            String playerName = player != null ? player.getName() : "Console";
+            format = format.replace("%player_name%", playerName);
+        }
 
         // Apply PlaceholderAPI (if available) for remaining %placeholder% patterns
         format = ColorUtils.applyPapi(player, format);
 
-        // Convert any legacy &-codes and hex to MiniMessage tags
+        // Convert any legacy &-codes and hex to MiniMessage tags in the FORMAT
         format = ColorUtils.convertLegacyAndHex(format);
 
         // Replace {message} with MiniMessage placeholder
         format = format.replace("{message}", "<message>");
 
-        // Inject message: either as plain text (safe) or parsed MiniMessage
-        if (parseMiniInMessage) {
-            // Protect & inside MiniMessage tag attributes (e.g. URLs in <click:open_url:'...'>)
-            // from being converted to color codes by convertLegacyAndHex.
-            // We use a null char placeholder since it never appears in chat messages.
-            String protectedMsg = protectAmpersandsInAttributes(message);
-            String parsedMsg = ColorUtils.convertLegacyAndHex(protectedMsg);
-            parsedMsg = parsedMsg.replace('\u0000', '&');
-            Component messageComponent = miniMessage.deserialize(parsedMsg);
-            return miniMessage.deserialize(format, Placeholder.component("message", messageComponent));
-        } else {
-            return miniMessage.deserialize(format, Placeholder.component("message", Component.text(message)));
+        // The message now contains:
+        // - Player text with legacy/hex already converted (step 4.6 in pipeline)
+        // - System-generated MiniMessage placeholders for links, mentions, item tags
+        // - Safe MiniMessage color/style tags
+        // Parse directly — do NOT run convertLegacyAndHex here as it would
+        // corrupt system tags and URL query parameters.
+        Component messageComponent;
+        try {
+            messageComponent = miniMessage.deserialize(message);
+        } catch (Exception e) {
+            DebugLogger.debug("ChatListener", "Failed to parse message MiniMessage, using plain text", e);
+            messageComponent = Component.text(message);
+        }
+
+        // Collect ALL TagResolvers: message placeholder + interactive elements + name
+        List<TagResolver> allResolvers = new ArrayList<>();
+        allResolvers.add(Placeholder.component("message", messageComponent));
+        if (extraResolvers != null) {
+            allResolvers.addAll(extraResolvers);
+        }
+        if (_interactiveNameResolver != null) {
+            allResolvers.add(_interactiveNameResolver);
+            _interactiveNameResolver = null; // Reset for next message
+        }
+
+        try {
+            return miniMessage.deserialize(format, allResolvers.toArray(new TagResolver[0]));
+        } catch (Exception e) {
+            DebugLogger.debug("ChatListener", "Failed to parse format with resolvers, attempting fallback", e);
+            // Fallback: return just the message component
+            return messageComponent;
         }
     }
 
     /**
-     * Replaces '&' with '\u0000' inside MiniMessage tag attribute values
-     * (between single quotes) so convertLegacyAndHex doesn't corrupt URLs.
-     * Example: <click:open_url:'http://example.com?a=1&b=2'>
-     *          becomes: <click:open_url:'http://example.com?a=1\u0000b=2'>
+     * Protects & characters inside URL patterns from being converted to color codes
+     * by convertLegacyAndHex. Uses \u0000 as a temporary placeholder that is
+     * restored after conversion.
+     * Example: https://example.com?a=1&b=2
+     *          becomes: https://example.com?a=1\u0000b=2
      */
-    private String protectAmpersandsInAttributes(String text) {
-        StringBuilder sb = new StringBuilder(text.length());
-        boolean inAttribute = false;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '\'' && i > 0) {
-                // Check if we're right after a ':' (attribute value start)
-                // Look backwards for a colon that's part of a tag
-                boolean afterColon = false;
-                for (int j = i - 1; j >= 0; j--) {
-                    char prev = text.charAt(j);
-                    if (prev == ':') { afterColon = true; break; }
-                    if (prev == '<' || prev == ' ') break; // start of tag or non-attribute
-                }
-                if (afterColon && !inAttribute) {
-                    inAttribute = true;
-                    sb.append(c);
-                    continue;
-                }
-                if (inAttribute) {
-                    inAttribute = false;
-                    sb.append(c);
-                    continue;
-                }
-            }
-            if (inAttribute && c == '&') {
-                sb.append('\u0000'); // protect from convertLegacyAndHex
-            } else {
-                sb.append(c);
-            }
+    private String protectAmpersandsInUrls(String text) {
+        Matcher urlMatcher = URL_PATTERN.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (urlMatcher.find()) {
+            String url = urlMatcher.group();
+            String protectedUrl = url.replace('&', '\u0000');
+            urlMatcher.appendReplacement(sb, Matcher.quoteReplacement(protectedUrl));
         }
+        urlMatcher.appendTail(sb);
         return sb.toString();
     }
 

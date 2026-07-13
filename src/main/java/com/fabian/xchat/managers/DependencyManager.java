@@ -59,9 +59,20 @@ public class DependencyManager {
     }
 
     private void loadAdventureDependencies() {
-        // Paper 1.16.5 does NOT bundle any Adventure libraries.
-        // All Adventure modules must be loaded via Libby at runtime.
-        // Use 4.10.0 — the earliest version where adventure-text-minimessage exists as a separate artifact.
+        // Paper 1.19+ bundles Adventure natively with the server.
+        // Only load via Libby on older servers (e.g. Paper 1.16.5) that don't have it.
+        // Loading our own copy on top of Paper's native Adventure causes classloader
+        // conflicts (Libby uses child-first classloading) that break MiniMessage
+        // click/hover tags and GsonComponentSerializer cross-server serialization.
+        try {
+            Class.forName("net.kyori.adventure.text.Component");
+            Class.forName("net.kyori.adventure.text.minimessage.MiniMessage");
+            DebugLogger.debug("DependencyManager", "Adventure API already available from server, skipping Libby load");
+            plugin.getLogger().info("Adventure API detected from server — skipping Libby download");
+            return;
+        } catch (ClassNotFoundException e) {
+            DebugLogger.debug("DependencyManager", "Adventure API not found on server, loading via Libby...");
+        }
 
         Library adventureApi = Library.builder()
                 .groupId("net.kyori")

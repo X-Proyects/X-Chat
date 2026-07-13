@@ -1,7 +1,14 @@
 package com.fabian.xchat.managers;
 
 import com.fabian.xchat.XChat;
+import com.fabian.xchat.utils.ColorUtils;
 import com.fabian.xchat.utils.DebugLogger;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.HoverEvent;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -12,12 +19,14 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 public class TagsManager {
 
     private final XChat plugin;
+    private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private File tagsFolder;
     private FileConfiguration itemConfig;
     private FileConfiguration posConfig;
@@ -48,12 +57,30 @@ public class TagsManager {
         pingConfig = YamlConfiguration.loadConfiguration(pingFile);
     }
 
-    public String processTags(Player player, String message) {
+    /**
+     * Processes all custom tags in the message.
+     * Ping and pos tags remain string-based (simple color formatting).
+     * Item tags build Components directly via Adventure API for reliable hover/click.
+     *
+     * @param player    the sender
+     * @param message   the chat message (modified in place)
+     * @param resolvers list to which item tag Component placeholders are added
+     * @return the modified message with item tag triggers replaced by placeholders
+     */
+    public String processTags(Player player, String message, List<TagResolver> resolvers) {
         DebugLogger.debug("TagsManager", "Processing tags for " + player.getName());
         message = processPingTag(player, message);
         message = processPosTag(player, message);
-        message = processItemTag(player, message);
+        message = processItemTag(player, message, resolvers);
         return message;
+    }
+
+    /**
+     * Legacy overload — used by code that doesn't need interactive resolvers.
+     * Item tag hover will NOT work with this method.
+     */
+    public String processTags(Player player, String message) {
+        return processTags(player, message, new java.util.ArrayList<>());
     }
 
     private String processPingTag(Player player, String message) {
@@ -63,6 +90,7 @@ public class TagsManager {
 
         List<String> triggers = pingConfig.getStringList("triggers");
         String format = pingConfig.getString("format", "<aqua>📡 {ping}ms</aqua>");
+        format = ColorUtils.convertLegacyAndHex(format);
         String replacement = format.replace("{ping}", String.valueOf(player.getPing()));
 
         for (String trigger : triggers) {
@@ -78,6 +106,7 @@ public class TagsManager {
 
         List<String> triggers = posConfig.getStringList("triggers");
         String format = posConfig.getString("format", "<green>📍 {x}, {y}, {z}</green>");
+        format = ColorUtils.convertLegacyAndHex(format);
         org.bukkit.Location loc = player.getLocation();
         
         String replacement = format.replace("{x}", String.valueOf(loc.getBlockX()))
@@ -91,7 +120,13 @@ public class TagsManager {
         return message;
     }
 
-    private String processItemTag(Player player, String message) {
+    /**
+     * Processes item tags in the message.
+     * Builds the item display Component directly via Adventure API (with hover event)
+     * and injects it as a MiniMessage placeholder. This ensures hover/click events
+     * are reliably preserved, unlike string-based MiniMessage embedding.
+     */
+    private String processItemTag(Player player, String message, List<TagResolver> resolvers) {
         if (!itemConfig.getBoolean("enabled", true)) return message;
         boolean hasMaster = player.hasPermission(plugin.getConfig().getString("general-permissions.all-tags", "xchat.tags.all"));
         if (!hasMaster && !player.hasPermission(itemConfig.getString("permission", "xchat.item.show"))) return message;
@@ -112,6 +147,7 @@ public class TagsManager {
         
         if (item == null || item.getType() == Material.AIR) {
             String emptyHand = itemConfig.getString("empty-hand", "<gray>[Empty Hand]</gray>");
+            emptyHand = ColorUtils.convertLegacyAndHex(emptyHand);
             for (String trigger : triggers) {
                 message = message.replaceAll("(?i)" + java.util.regex.Pattern.quote(trigger), java.util.regex.Matcher.quoteReplacement(emptyHand));
             }
@@ -130,66 +166,141 @@ public class TagsManager {
         }
         int durability = maxDurability - damage;
 
-        // Enchantments
-        StringBuilder enchantsBuilder = new StringBuilder();
-        if (meta != null && meta.hasEnchants()) {
-            for (Map.Entry<Enchantment, Integer> entry : meta.getEnchants().entrySet()) {
-                String enchName = entry.getKey().getKey().getKey();
-                enchName = capitalize(enchName.replace("_", " "));
-                enchantsBuilder.append("<gray>").append(enchName).append(" ").append(toRoman(entry.getValue())).append("</gray><newline>");
+        // Build Hover Component directly via Adventure API
+        Component hoverComp = buildItemHoverComponent(item, meta, itemName, amount, durability, maxDurability);
+
+        // Build Display Component
+        String displayFormat = itemConfig.getString("display-format", "<gold>[<yellow>{item_name}</yellow>]</gold>");
+        displayFormat = ColorUtils.convertLegacyAndHex(displayFormat);
+        displayFormat = displayFormat.replace("{item_name}", itemName)
+                .replace("{item_amount}", String.valueOf(amount));
+
+        Component displayComp;
+        try {
+            displayComp = miniMessage.deserialize(displayFormat);
+        } catch (Exception e) {
+            DebugLogger.debug("TagsManager", "Failed to parse item display format, using fallback", e);
+            displayComp = Component.text("[" + itemName + "]");
+        }
+
+        // Apply hover event if available
+        if (hoverComp != null) {
+            displayComp = displayComp.style(Style.style()
+                    .hoverEvent(HoverEvent.showText(hoverComp)));
+        }
+
+        // Build click event (if configured)
+        String clickAction = itemConfig.getString("click-action", "");
+        if (clickAction != null && !clickAction.isEmpty() && ColorUtils.isPaperAdventureAvailable()) {
+            try {
+                net.kyori.adventure.text.event.ClickEvent clickEvent;
+                switch (clickAction.toUpperCase()) {
+                    case "SUGGEST_COMMAND":
+                        String suggestCmd = itemConfig.getString("click-value", "/iteminfo {player_name}")
+                                .replace("{player_name}", player.getName())
+                                .replace("{item_name}", itemName);
+                        clickEvent = net.kyori.adventure.text.event.ClickEvent.suggestCommand(suggestCmd);
+                        displayComp = displayComp.style(displayComp.style().clickEvent(clickEvent));
+                        break;
+                    case "RUN_COMMAND":
+                        String runCmd = itemConfig.getString("click-value", "")
+                                .replace("{player_name}", player.getName())
+                                .replace("{item_name}", itemName);
+                        if (!runCmd.isEmpty()) {
+                            clickEvent = net.kyori.adventure.text.event.ClickEvent.runCommand(runCmd);
+                            displayComp = displayComp.style(displayComp.style().clickEvent(clickEvent));
+                        }
+                        break;
+                    case "COPY_TO_CLIPBOARD":
+                        String copyText = itemConfig.getString("click-value", itemName);
+                        clickEvent = net.kyori.adventure.text.event.ClickEvent.copyToClipboard(copyText);
+                        displayComp = displayComp.style(displayComp.style().clickEvent(clickEvent));
+                        break;
+                }
+            } catch (Exception e) {
+                DebugLogger.debug("TagsManager", "Failed to create item click event", e);
             }
         }
 
-        // Lore
-        StringBuilder loreBuilder = new StringBuilder();
-        if (meta != null && meta.hasLore()) {
-            for (String line : meta.getLore()) {
-                loreBuilder.append(line.replace("§", "&")).append("<newline>");
+        // Replace all occurrences of triggers with a placeholder
+        for (String trigger : triggers) {
+            java.util.regex.Pattern trigPattern = java.util.regex.Pattern.compile(
+                    "(?i)" + java.util.regex.Pattern.quote(trigger));
+            java.util.regex.Matcher trigMatcher = trigPattern.matcher(message);
+            if (trigMatcher.find()) {
+                String placeholderName = "xchat_item";
+                resolvers.add(Placeholder.component(placeholderName, displayComp));
+                message = trigMatcher.replaceAll(java.util.regex.Matcher.quoteReplacement("<" + placeholderName + ">"));
+                break; // Only replace first occurrence (one item per message)
             }
         }
 
-        // Build Hover Tooltip
+        return message;
+    }
+
+    /**
+     * Builds the item hover tooltip Component directly via Adventure API.
+     * Each line is parsed from the config's hover-format list.
+     */
+    private Component buildItemHoverComponent(ItemStack item, ItemMeta meta,
+                                               String itemName, int amount,
+                                               int durability, int maxDurability) {
         List<String> hoverLines = itemConfig.getStringList("hover-format");
-        StringBuilder hoverTooltip = new StringBuilder();
+        if (hoverLines == null || hoverLines.isEmpty()) return null;
+
+        List<Component> lineComponents = new ArrayList<>();
+
         for (String line : hoverLines) {
+            line = ColorUtils.convertLegacyAndHex(line);
             String processedLine = line.replace("{item_name}", itemName)
                                        .replace("{item_amount}", String.valueOf(amount))
                                        .replace("{item_durability}", String.valueOf(durability))
                                        .replace("{item_max_durability}", String.valueOf(maxDurability));
             
+            // Build enchantments text
             if (processedLine.contains("{item_enchantments}")) {
-                if (enchantsBuilder.length() > 0) {
-                    processedLine = processedLine.replace("{item_enchantments}", enchantsBuilder.toString().trim());
-                } else {
-                    processedLine = processedLine.replace("{item_enchantments}", "");
+                StringBuilder enchantsBuilder = new StringBuilder();
+                if (meta != null && meta.hasEnchants()) {
+                    for (Map.Entry<Enchantment, Integer> entry : meta.getEnchants().entrySet()) {
+                        String enchName = entry.getKey().getKey().getKey();
+                        enchName = capitalize(enchName.replace("_", " "));
+                        enchantsBuilder.append("<gray>").append(enchName).append(" ").append(toRoman(entry.getValue())).append("</gray><newline>");
+                    }
                 }
+                processedLine = processedLine.replace("{item_enchantments}", enchantsBuilder.toString().trim());
             }
             
+            // Build lore text
             if (processedLine.contains("{item_lore}")) {
-                if (loreBuilder.length() > 0) {
-                    processedLine = processedLine.replace("{item_lore}", loreBuilder.toString().trim());
-                } else {
-                    processedLine = processedLine.replace("{item_lore}", "");
+                StringBuilder loreBuilder = new StringBuilder();
+                if (meta != null && meta.hasLore()) {
+                    for (String loreLine : meta.getLore()) {
+                        loreBuilder.append(loreLine.replace("§", "&")).append("<newline>");
+                    }
+                }
+                processedLine = processedLine.replace("{item_lore}", loreBuilder.toString().trim());
+            }
+
+            if (!processedLine.trim().isEmpty()) {
+                try {
+                    lineComponents.add(miniMessage.deserialize(processedLine));
+                } catch (Exception e) {
+                    lineComponents.add(Component.text(processedLine));
                 }
             }
-            
-            if (!processedLine.trim().isEmpty()) {
-                hoverTooltip.append(processedLine).append("<newline>");
-            }
         }
 
-        // Build Display Format
-        String display = itemConfig.getString("display-format", "<gold>[<yellow>{item_name}</yellow>]</gold>")
-                .replace("{item_name}", itemName)
-                .replace("{item_amount}", String.valueOf(amount))
-                .replace("{item_hover}", hoverTooltip.toString().trim());
+        if (lineComponents.isEmpty()) return null;
 
-        // Replace all occurrences of triggers
-        for (String trigger : triggers) {
-            message = message.replaceAll("(?i)" + java.util.regex.Pattern.quote(trigger), java.util.regex.Matcher.quoteReplacement(display));
+        // Combine multiple lines with newline
+        if (lineComponents.size() == 1) return lineComponents.get(0);
+
+        net.kyori.adventure.text.TextComponent.Builder builder = Component.text();
+        for (int i = 0; i < lineComponents.size(); i++) {
+            if (i > 0) builder.append(Component.newline());
+            builder.append(lineComponents.get(i));
         }
-
-        return message;
+        return builder.asComponent();
     }
 
     private String getItemName(ItemStack item) {

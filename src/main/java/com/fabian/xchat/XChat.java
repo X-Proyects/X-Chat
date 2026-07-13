@@ -10,8 +10,7 @@ import com.fabian.xchat.storage.*;
 import com.fabian.xchat.utils.ColorUtils;
 import com.fabian.xchat.utils.DebugLogger;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import net.kyori.adventure.text.serializer.gson.GsonComponentSerializer;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -639,16 +638,14 @@ public class XChat extends JavaPlugin {
         switch (channel) {
             case "chat": {
                 // Cross-server chat message
-                // Payload format (4 lines, newline-delimited):
-                //   Line 1: legacy formatted message (§-coded, Spigot fallback)
-                //   Line 2: MiniMessage format string (with <message> placeholder) or empty
-                //   Line 3: MiniMessage raw message text (mentions/links/tags) or empty
-                //   Line 4: pre-mention plain text (for cross-server mention sound detection)
-                String[] parts = message.split("\n", 4);
+                // Payload format (3 lines, newline-delimited):
+                //   Line 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
+                //   Line 2: JSON serialized Component (full hover/click/format) or empty
+                //   Line 3: pre-mention plain text (for cross-server mention sound detection)
+                String[] parts = message.split("\n", 3);
                 String legacyMessage = parts[0];
-                String mmFormat = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : null;
-                String mmRaw = (parts.length > 2 && !parts[2].isEmpty()) ? parts[2] : null;
-                String preMentionRaw = (parts.length > 3 && !parts[3].isEmpty()) ? parts[3] : null;
+                String jsonComponent = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : null;
+                String preMentionRaw = (parts.length > 2 && !parts[2].isEmpty()) ? parts[2] : null;
 
                 // Process mentions for local players (sound only) using pre-mention plain text
                 if (preMentionRaw != null && getConfig().getBoolean("chat-settings.mentions.enabled", true)) {
@@ -658,16 +655,15 @@ public class XChat extends JavaPlugin {
                 UUID senderUuid = null;
                 try { senderUuid = UUID.fromString(senderUUID); } catch (IllegalArgumentException ignored) {}
 
-                // Try to build Component from MiniMessage strings (preserves ALL formatting)
+                // Try JSON deserialization first (preserves ALL Component data)
                 boolean displayed = false;
-                if (mmFormat != null && mmRaw != null && ColorUtils.isPaperAdventureAvailable()) {
+                if (jsonComponent != null && ColorUtils.isPaperAdventureAvailable()) {
                     try {
-                        MiniMessage mm = MiniMessage.miniMessage();
-                        Component msgComp = mm.deserialize(mmRaw);
-                        Component fullComp = mm.deserialize(mmFormat,
-                                Placeholder.component("message", msgComp));
-                        Component prefixComp = LegacyComponentSerializer.legacyAmpersand().deserialize(serverPrefix);
-                        Component finalComp = Component.text().append(prefixComp).append(fullComp).build();
+                        DebugLogger.debug("CrossServer", "JSON component length: " + jsonComponent.length());
+                        Component comp = GsonComponentSerializer.gson().deserialize(jsonComponent);
+                        // Use legacySection because serverPrefix uses § codes (from ChatColor.translateAlternateColorCodes)
+                        Component prefixComp = LegacyComponentSerializer.legacySection().deserialize(serverPrefix);
+                        Component finalComp = Component.text().append(prefixComp).append(comp).build();
 
                         for (Player p : Bukkit.getOnlinePlayers()) {
                             if (senderUuid != null && isIgnoring(p.getUniqueId(), senderUuid)) continue;
@@ -677,13 +673,15 @@ public class XChat extends JavaPlugin {
                             p.sendMessage(finalComp);
                         }
                         displayed = true;
+                        DebugLogger.debug("CrossServer", "Displayed chat from " + originServer + " via JSON Component");
                     } catch (Throwable t) {
-                        logWarning("[X-Chat] Failed to parse cross-server MiniMessage, falling back to legacy. Error: " + t.getMessage());
-                        DebugLogger.debug("CrossServer", "Failed to parse cross-server MiniMessage", t);
+                        logWarning("[X-Chat] Failed to deserialize cross-server JSON component, falling back to legacy. Error: " + t.getMessage());
+                        DebugLogger.debug("CrossServer", "JSON deserialize failed", t);
+                        DebugLogger.debug("CrossServer", "JSON payload (first 300 chars): " + (jsonComponent.length() > 300 ? jsonComponent.substring(0, 300) + "..." : jsonComponent));
                     }
                 }
 
-                // Fallback: legacy message (Spigot or MiniMessage parse failed)
+                // Fallback: legacy message (Spigot or JSON parse failed)
                 if (!displayed) {
                     String displayMessage = legacyMessage;
                     // For Spigot, re-process auto-links on pre-mention raw text for basic formatting
@@ -691,7 +689,8 @@ public class XChat extends JavaPlugin {
                         String processedRaw = reprocessCrossServerLinks(preMentionRaw);
                         if (!processedRaw.equals(preMentionRaw)) {
                             String simpleFormat = "<gray>" + senderName + " <dark_gray>» " + processedRaw;
-                            displayMessage = ColorUtils.toLegacyString(MiniMessage.miniMessage().deserialize(simpleFormat));
+                            displayMessage = ColorUtils.toLegacyString(
+                                    net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(simpleFormat));
                         }
                     }
 
@@ -710,7 +709,7 @@ public class XChat extends JavaPlugin {
                         chatHistoryManager.addMessage(senderUuid, finalDisplay);
                     }
                 } else {
-                    // Console: use legacy fallback when MiniMessage display succeeded
+                    // Console: use legacy fallback when JSON display succeeded
                     Bukkit.getConsoleSender().sendMessage(serverPrefix + legacyMessage);
                     // Save to chat history
                     if (chatHistoryManager != null && senderUuid != null) {
