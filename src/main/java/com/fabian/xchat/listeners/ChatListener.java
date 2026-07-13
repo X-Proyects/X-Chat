@@ -251,12 +251,18 @@ public class ChatListener implements Listener {
         }
 
         // Step 9: Apply interactive name hover/click to format string
+        TagResolver interactiveNameResolver = null;
         if (plugin.getConfig().getBoolean("chat-settings.interactive-name.enabled")) {
-            formatString = applyInteractiveName(formatString, player);
+            InteractiveNameResult nameResult = applyInteractiveName(formatString, player);
+            formatString = nameResult.format;
+            interactiveNameResolver = nameResult.resolver;
         }
 
         // Step 10: Build final Component via MiniMessage deserialization
-        Component finalComponent = buildFinalComponent(player, formatString, rawMessage, allowMini, interactiveResolvers);
+        // Pass BOTH extraResolvers (links/mentions/item tags — needed at message-level parse)
+        // AND interactiveNameResolver (needed at format-level parse).
+        Component finalComponent = buildFinalComponent(player, formatString, rawMessage, allowMini,
+                interactiveResolvers, interactiveNameResolver);
 
         // ══════════════════════════════════════════════════
         //  OUTPUT
@@ -296,24 +302,39 @@ public class ChatListener implements Listener {
         String jsonComponent = null;
         try {
             jsonComponent = net.kyori.adventure.text.serializer.gson.GsonComponentSerializer.gson().serialize(finalComponent);
+            DebugLogger.debug("ChatListener", "Cross-server JSON component serialized (" + jsonComponent.length() + " chars)");
         } catch (Throwable t) {
             DebugLogger.debug("ChatListener", "Failed to serialize component to JSON for cross-server", t);
+            logWarningFallback();
         }
 
         // Publish to cross-server (Redis pub/sub)
         if (plugin.getMessagingService() != null && plugin.getMessagingService().isEnabled()) {
-            // Payload format (3 lines, newline-delimited):
-            //   Line 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
-            //   Line 2: JSON serialized Component (full hover/click/format preservation) or empty
-            //   Line 3: pre-mention plain text (for cross-server mention sound detection)
+            // Payload format (3 parts, delimited by \u0001 — chosen because it's a control character
+            // that cannot appear inside JSON strings (JSON escapes control chars as \u0001) and is
+            // extremely unlikely to appear in legacy §-coded chat or pre-mention plain text.
+            // Using \n as the delimiter was unsafe: a player with MiniMessage permission could type
+            // <newline>, producing a real \n inside legacyOutput, which would silently corrupt the
+            // payload split on the receiver.
+            //   Part 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
+            //   Part 2: JSON serialized Component (full hover/click/format preservation) or empty
+            //   Part 3: pre-mention plain text (for cross-server mention sound detection)
             String crossServerPayload = legacyOutput
-                    + "\n" + (jsonComponent != null ? jsonComponent : "")
-                    + "\n" + preMentionRaw;
+                    + "\u0001" + (jsonComponent != null ? jsonComponent : "")
+                    + "\u0001" + preMentionRaw;
 
             plugin.getMessagingService().publish("chat", player.getName(),
                     player.getUniqueId().toString(),
                     plugin.getServerName(), crossServerPayload);
         }
+    }
+
+    /** Emits a one-shot warning when JSON serialization fails so the admin sees cross-server will degrade. */
+    private static boolean jsonWarnedOnce = false;
+    private void logWarningFallback() {
+        if (jsonWarnedOnce) return;
+        jsonWarnedOnce = true;
+        plugin.logWarning("[X-Chat] Could not serialize chat Component to JSON. Cross-server messages will fall back to legacy text (no hover/click). This usually means adventure-text-serializer-gson is missing from the server classpath.");
     }
 
     // ──────────────────────────────────────────────────────
@@ -563,7 +584,22 @@ public class ChatListener implements Listener {
     // ──────────────────────────────────────────────────────
     //  INTERACTIVE NAME (hover/click on player name)
     // ──────────────────────────────────────────────────────
-    private String applyInteractiveName(String format, Player player) {
+    /**
+     * Holder for the result of applyInteractiveName: the modified format string
+     * and the TagResolver that resolves the <xchat_name> placeholder.
+     * Using a holder (instead of an instance field) avoids race conditions
+     * because AsyncPlayerChatEvent fires concurrently across threads.
+     */
+    private static final class InteractiveNameResult {
+        final String format;
+        final TagResolver resolver;
+        InteractiveNameResult(String format, TagResolver resolver) {
+            this.format = format;
+            this.resolver = resolver;
+        }
+    }
+
+    private InteractiveNameResult applyInteractiveName(String format, Player player) {
         List<String> hoverLines = plugin.getConfig().getStringList("chat-settings.interactive-name.hover-text");
         // Resolve placeholders in hover lines (so %vault_prefix%, %player_ping% etc. work)
         String playerName = player.getName();
@@ -601,13 +637,10 @@ public class ChatListener implements Listener {
         // Replace %player_name% in format with a MiniMessage placeholder
         // We use a unique placeholder name and pass the Component via TagResolver
         String placeholderName = IPC_PREFIX + "name";
-        // Store the name component for later use in buildFinalComponent
-        this._interactiveNameResolver = Placeholder.component(placeholderName, nameComp);
-        return format.replace("%player_name%", "<" + placeholderName + ">");
+        TagResolver resolver = Placeholder.component(placeholderName, nameComp);
+        String newFormat = format.replace("%player_name%", "<" + placeholderName + ">");
+        return new InteractiveNameResult(newFormat, resolver);
     }
-
-    // Transient field to pass the interactive name resolver to buildFinalComponent
-    private TagResolver _interactiveNameResolver = null;
 
     /**
      * Builds the hover Component for interactive player names from config lines.
@@ -653,9 +686,10 @@ public class ChatListener implements Listener {
      * @param extraResolvers additional TagResolvers for links, mentions, item tags, etc.
      */
     private Component buildFinalComponent(Player player, String format, String message,
-                                          boolean parseMiniInMessage, List<TagResolver> extraResolvers) {
+                                          boolean parseMiniInMessage, List<TagResolver> extraResolvers,
+                                          TagResolver interactiveNameResolver) {
         // Replace built-in placeholders (only if not already replaced by interactive name)
-        if (_interactiveNameResolver == null) {
+        if (interactiveNameResolver == null) {
             String playerName = player != null ? player.getName() : "Console";
             format = format.replace("%player_name%", playerName);
         }
@@ -671,31 +705,47 @@ public class ChatListener implements Listener {
 
         // The message now contains:
         // - Player text with legacy/hex already converted (step 4.6 in pipeline)
-        // - System-generated MiniMessage placeholders for links, mentions, item tags
+        // - System-generated MiniMessage placeholders for links, mentions, item tags:
+        //     <xchat_l0>, <xchat_l1>, ...  (auto-links)
+        //     <xchat_m0>, <xchat_m1>, ...  (mentions)
+        //     <xchat_item>                  (item tag — only one per message)
         // - Safe MiniMessage color/style tags
-        // Parse directly — do NOT run convertLegacyAndHex here as it would
-        // corrupt system tags and URL query parameters.
+        //
+        // CRITICAL: we MUST pass extraResolvers to this message-level deserialize call.
+        // Without them, MiniMessage treats the <xchat_*> placeholders as unknown tags
+        // and either strips them or outputs them as literal text — meaning the actual
+        // link/mention/item Components never get embedded. This was the root cause of:
+        //   • Local links being broken
+        //   • Mentions not formatting (local + cross-server)
+        //   • Item tag hover/click not working cross-server
+        // (Cross-server broke because the JSON Component sent via Redis is built from
+        //  this same local Component — garbage in, garbage out.)
         Component messageComponent;
         try {
-            messageComponent = miniMessage.deserialize(message);
+            if (extraResolvers != null && !extraResolvers.isEmpty()) {
+                messageComponent = miniMessage.deserialize(message, extraResolvers.toArray(new TagResolver[0]));
+            } else {
+                messageComponent = miniMessage.deserialize(message);
+            }
         } catch (Exception e) {
             DebugLogger.debug("ChatListener", "Failed to parse message MiniMessage, using plain text", e);
             messageComponent = Component.text(message);
         }
 
-        // Collect ALL TagResolvers: message placeholder + interactive elements + name
-        List<TagResolver> allResolvers = new ArrayList<>();
-        allResolvers.add(Placeholder.component("message", messageComponent));
-        if (extraResolvers != null) {
-            allResolvers.addAll(extraResolvers);
-        }
-        if (_interactiveNameResolver != null) {
-            allResolvers.add(_interactiveNameResolver);
-            _interactiveNameResolver = null; // Reset for next message
+        // Collect resolvers for the FORMAT-level parse:
+        //   - <message> placeholder → the parsed message Component (with all links/mentions/items embedded)
+        //   - <xchat_name> placeholder → interactive player name Component (with hover/click)
+        // Note: extraResolvers are NOT needed here because the format string does not
+        // contain <xchat_l0>/<xchat_m0>/<xchat_item> — those placeholders live inside
+        // the message, which was already resolved above.
+        List<TagResolver> formatResolvers = new ArrayList<>();
+        formatResolvers.add(Placeholder.component("message", messageComponent));
+        if (interactiveNameResolver != null) {
+            formatResolvers.add(interactiveNameResolver);
         }
 
         try {
-            return miniMessage.deserialize(format, allResolvers.toArray(new TagResolver[0]));
+            return miniMessage.deserialize(format, formatResolvers.toArray(new TagResolver[0]));
         } catch (Exception e) {
             DebugLogger.debug("ChatListener", "Failed to parse format with resolvers, attempting fallback", e);
             // Fallback: return just the message component

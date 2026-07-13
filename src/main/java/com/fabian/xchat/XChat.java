@@ -638,11 +638,20 @@ public class XChat extends JavaPlugin {
         switch (channel) {
             case "chat": {
                 // Cross-server chat message
-                // Payload format (3 lines, newline-delimited):
-                //   Line 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
-                //   Line 2: JSON serialized Component (full hover/click/format) or empty
-                //   Line 3: pre-mention plain text (for cross-server mention sound detection)
-                String[] parts = message.split("\n", 3);
+                // Payload format (3 parts, delimited by \u0001):
+                //   Part 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
+                //   Part 2: JSON serialized Component (full hover/click/format) or empty
+                //   Part 3: pre-mention plain text (for cross-server mention sound detection)
+                //
+                // For backward compatibility with older senders that still use \n as delimiter,
+                // we detect which delimiter the payload uses by checking for \u0001 first.
+                String[] parts;
+                if (message.indexOf('\u0001') != -1) {
+                    parts = message.split("\u0001", 3);
+                } else {
+                    // Legacy payload using \n delimiter (older plugin version on sender side)
+                    parts = message.split("\n", 3);
+                }
                 String legacyMessage = parts[0];
                 String jsonComponent = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : null;
                 String preMentionRaw = (parts.length > 2 && !parts[2].isEmpty()) ? parts[2] : null;
@@ -655,7 +664,8 @@ public class XChat extends JavaPlugin {
                 UUID senderUuid = null;
                 try { senderUuid = UUID.fromString(senderUUID); } catch (IllegalArgumentException ignored) {}
 
-                // Try JSON deserialization first (preserves ALL Component data)
+                // Try JSON deserialization first (preserves ALL Component data: hover, click, gradients)
+                // This is the ONLY path that preserves interactive features cross-server.
                 boolean displayed = false;
                 if (jsonComponent != null && ColorUtils.isPaperAdventureAvailable()) {
                     try {
@@ -670,10 +680,15 @@ public class XChat extends JavaPlugin {
                             if (storageProvider != null && !(storageProvider instanceof YamlStorageProvider) && senderUuid != null) {
                                 try { if (storageProvider.isIgnoring(p.getUniqueId(), senderUuid)) continue; } catch (Exception ignored) {}
                             }
-                            p.sendMessage(finalComp);
+                            try {
+                                p.sendMessage(finalComp);
+                            } catch (NoSuchMethodError | NoClassDefFoundError fallback) {
+                                // Player class lacks Adventure API (very old Spigot) — fall back to legacy
+                                p.sendMessage(ColorUtils.toLegacyString(finalComp));
+                            }
                         }
                         displayed = true;
-                        DebugLogger.debug("CrossServer", "Displayed chat from " + originServer + " via JSON Component");
+                        DebugLogger.debug("CrossServer", "Displayed chat from " + originServer + " via JSON Component (hover/click preserved)");
                     } catch (Throwable t) {
                         logWarning("[X-Chat] Failed to deserialize cross-server JSON component, falling back to legacy. Error: " + t.getMessage());
                         DebugLogger.debug("CrossServer", "JSON deserialize failed", t);
