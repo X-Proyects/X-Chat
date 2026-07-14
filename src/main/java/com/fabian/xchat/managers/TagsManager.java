@@ -190,8 +190,11 @@ public class TagsManager {
         }
 
         // Build click event (if configured)
+        // Always build — the try/catch in sendMessage handles Spigot fallback.
+        // The old isPaperAdventureAvailable() check was unreliable and caused click
+        // events to be skipped on real Paper servers.
         String clickAction = itemConfig.getString("click-action", "");
-        if (clickAction != null && !clickAction.isEmpty() && ColorUtils.isPaperAdventureAvailable()) {
+        if (clickAction != null && !clickAction.isEmpty()) {
             try {
                 net.kyori.adventure.text.event.ClickEvent clickEvent;
                 switch (clickAction.toUpperCase()) {

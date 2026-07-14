@@ -431,6 +431,7 @@ public class ChatListener implements Listener {
         mentionFormat = ColorUtils.convertLegacyAndHex(mentionFormat);
 
         List<Player> onlinePlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
+        DebugLogger.debug("ChatListener", "processMentions: " + onlinePlayers.size() + " online players, message='" + message + "', requireSymbol=" + requireSymbol);
         // Sort by display name length (descending) so longer matches take priority
         // Display name may include prefix (e.g., "[Admin] Fabian")
         onlinePlayers.sort((p1, p2) -> Integer.compare(
@@ -453,6 +454,7 @@ public class ChatListener implements Listener {
             Pattern pattern = Pattern.compile(trigger, Pattern.CASE_INSENSITIVE);
             Matcher matcher = pattern.matcher(message);
             if (matcher.find()) {
+                DebugLogger.debug("ChatListener", "Mention matched: target=" + name + ", matchText='" + matchText + "', placeholder=xchat_m" + mentionIndex);
                 // Build the mention Component directly via Adventure API
                 Component mentionComp = buildMentionComponent(mentionFormat, matchText);
                 String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
@@ -525,37 +527,30 @@ public class ChatListener implements Listener {
     private String processAutoLinks(String message, List<TagResolver> resolvers) {
         Matcher urlMatcher = URL_PATTERN.matcher(message);
         StringBuffer sb = new StringBuffer();
-        boolean isPaper = ColorUtils.isPaperAdventureAvailable();
         int linkIndex = 0;
 
         // Build hover Component from config (parse once, reuse for all links)
         Component hoverComp = buildLinkHoverComponent();
 
+        // ALWAYS build links with click+hover events. On Paper, these are sent natively
+        // via Player.sendMessage(Component). On Spigot, the sendMessage call throws
+        // NoSuchMethodError and we fall back to legacy text (which strips click/hover
+        // but preserves underline+color). The old isPaper check here was causing links
+        // to be built WITHOUT click events even on Paper servers where isPaperAdventureAvailable()
+        // returned false due to an unreliable detection method.
         while (urlMatcher.find()) {
             String url = urlMatcher.group();
             String clickUrl = url.startsWith("http") ? url : "http://" + url;
 
-            // Build link Component directly via Adventure API
-            Component linkComp;
-            if (isPaper && hoverComp != null) {
-                linkComp = Component.text(url)
-                        .style(Style.style()
-                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
-                                .clickEvent(ClickEvent.openUrl(clickUrl))
-                                .hoverEvent(HoverEvent.showText(hoverComp)));
-            } else if (isPaper) {
-                // Paper but no hover configured
-                linkComp = Component.text(url)
-                        .style(Style.style()
-                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
-                                .clickEvent(ClickEvent.openUrl(clickUrl)));
-            } else {
-                // Spigot: no click/hover support, just underline and color
-                linkComp = Component.text(url)
-                        .style(Style.style()
-                                .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
-                                .color(net.kyori.adventure.text.format.NamedTextColor.BLUE));
+            Style.Builder styleBuilder = Style.style()
+                    .decoration(TextDecoration.UNDERLINED, TextDecoration.State.TRUE)
+                    .clickEvent(ClickEvent.openUrl(clickUrl));
+
+            if (hoverComp != null) {
+                styleBuilder.hoverEvent(HoverEvent.showText(hoverComp));
             }
+
+            Component linkComp = Component.text(url).style(styleBuilder);
 
             String placeholderName = IPC_PREFIX + "l" + (linkIndex++);
             resolvers.add(Placeholder.component(placeholderName, linkComp));

@@ -6,7 +6,7 @@
 
     <groupId>com.fabian.xchat</groupId>
     <artifactId>X-Chat</artifactId>
-    <version>1.3-Beta-09</version>
+    <version>1.3-Beta-10</version>
 
     <url>https://github.com/fabianfamr/X-Chat</url>
     <inceptionYear>2026</inceptionYear>
@@ -41,7 +41,8 @@
                 <enabled>false</enabled>
             </snapshots>
         </repository>
-        <!-- Alessio Repo for Libby -->
+        <!-- Alessio Repo for Libby (currently down; libby installed manually in local .m2) -->
+        <!--
         <repository>
             <id>alessiodp</id>
             <url>https://repo.alessiodp.com/releases/</url>
@@ -49,6 +50,7 @@
                 <enabled>false</enabled>
             </snapshots>
         </repository>
+        -->
     </repositories>
 
     <dependencies>

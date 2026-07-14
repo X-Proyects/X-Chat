@@ -666,8 +666,12 @@ public class XChat extends JavaPlugin {
 
                 // Try JSON deserialization first (preserves ALL Component data: hover, click, gradients)
                 // This is the ONLY path that preserves interactive features cross-server.
+                // We NO LONGER guard with isPaperAdventureAvailable() — that check was unreliable
+                // (false negatives on Paper 1.16.5 / when Libby hadn't loaded Adventure yet) and
+                // caused the entire JSON path to be skipped, stripping ALL hover/click events.
+                // Instead, we just try the JSON path and catch any error.
                 boolean displayed = false;
-                if (jsonComponent != null && ColorUtils.isPaperAdventureAvailable()) {
+                if (jsonComponent != null) {
                     try {
                         DebugLogger.debug("CrossServer", "JSON component length: " + jsonComponent.length());
                         Component comp = GsonComponentSerializer.gson().deserialize(jsonComponent);
@@ -696,11 +700,12 @@ public class XChat extends JavaPlugin {
                     }
                 }
 
-                // Fallback: legacy message (Spigot or JSON parse failed)
+                // Fallback: legacy message (JSON parse failed or JSON was null)
                 if (!displayed) {
                     String displayMessage = legacyMessage;
-                    // For Spigot, re-process auto-links on pre-mention raw text for basic formatting
-                    if (preMentionRaw != null && !ColorUtils.isPaperAdventureAvailable()) {
+                    // Re-process auto-links on pre-mention raw text for basic formatting
+                    // (this runs on both Paper and Spigot when the JSON path failed)
+                    if (preMentionRaw != null) {
                         String processedRaw = reprocessCrossServerLinks(preMentionRaw);
                         if (!processedRaw.equals(preMentionRaw)) {
                             String simpleFormat = "<gray>" + senderName + " <dark_gray>» " + processedRaw;

@@ -32,8 +32,11 @@ public class ColorUtils {
     // Global plugin prefix — replaced automatically in every message
     private static String pluginPrefix = "";
 
-    // Paper Adventure detection
-    private static boolean paperAdventureAvailable = false;
+    // Paper Adventure detection — lazy, cached after first check
+    // Previously used Class.forName("io.papermc.paper.adventure.PaperAudiences") which
+    // does NOT exist in Paper 1.16.5 and ran in a static block before Libby could load
+    // Adventure, causing false negatives on real Paper servers.
+    private static volatile Boolean paperAdventureAvailable = null;
 
     static {
         try {
@@ -42,17 +45,6 @@ public class ColorUtils {
             papiAvailable = true;
         } catch (Exception ignored) {
             papiAvailable = false;
-        }
-
-        // Paper Adventure detection: try to call Player.sendMessage(Component) at init.
-        // On Paper it works natively (hover, click, gradient).
-        // On Spigot it throws NoSuchMethodError.
-        try {
-            // Check for Paper's Adventure audience provider (exists in all Paper versions)
-            Class.forName("io.papermc.paper.adventure.PaperAudiences");
-            paperAdventureAvailable = true;
-        } catch (Exception e) {
-            paperAdventureAvailable = false;
         }
     }
 
@@ -254,7 +246,20 @@ public class ColorUtils {
     }
 
     public static boolean isPaperAdventureAvailable() {
-        return paperAdventureAvailable;
+        if (paperAdventureAvailable != null) return paperAdventureAvailable;
+        synchronized (ColorUtils.class) {
+            if (paperAdventureAvailable != null) return paperAdventureAvailable;
+            // Detect by checking if Player class has the Adventure sendMessage(Component) method.
+            // This is the actual method we need, and it exists on ALL Paper versions (1.16.5+)
+            // but NOT on Spigot. This is more reliable than checking for internal Paper classes.
+            try {
+                org.bukkit.entity.Player.class.getMethod("sendMessage", net.kyori.adventure.text.Component.class);
+                paperAdventureAvailable = true;
+            } catch (NoSuchMethodException e) {
+                paperAdventureAvailable = false;
+            }
+            return paperAdventureAvailable;
+        }
     }
 
     // ════════════════════════════════════════════════════════
