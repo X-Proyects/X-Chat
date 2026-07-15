@@ -430,8 +430,17 @@ public class ChatListener implements Listener {
         // Ensure mention format is MiniMessage (convert & codes if config uses them)
         mentionFormat = ColorUtils.convertLegacyAndHex(mentionFormat);
 
+        // Collect ALL player names: local + cross-server.
+        // Previously only Bukkit.getOnlinePlayers() was checked, which meant mentions
+        // of players on OTHER servers never matched and were left as plain text.
+        // Now we also check the crossServerPlayers cache.
         List<Player> onlinePlayers = new ArrayList<>(Bukkit.getOnlinePlayers());
-        DebugLogger.debug("ChatListener", "processMentions: " + onlinePlayers.size() + " online players, message='" + message + "', requireSymbol=" + requireSymbol);
+        Set<String> crossServerNames = new java.util.TreeSet<>((a, b) ->
+                Integer.compare(b.length(), a.length())); // sort by length descending
+        crossServerNames.addAll(plugin.getCrossServerPlayers().keySet());
+
+        DebugLogger.debug("ChatListener", "processMentions: " + onlinePlayers.size() + " local + "
+                + crossServerNames.size() + " cross-server players, message='" + message + "', requireSymbol=" + requireSymbol);
         // Sort by display name length (descending) so longer matches take priority
         // Display name may include prefix (e.g., "[Admin] Fabian")
         onlinePlayers.sort((p1, p2) -> Integer.compare(
@@ -439,6 +448,11 @@ public class ChatListener implements Listener {
                 org.bukkit.ChatColor.stripColor(p1.getDisplayName()).length()));
 
         int mentionIndex = 0;
+        // Track which names have already been matched to avoid double-replacing
+        // when the same name appears in both local and cross-server lists
+        Set<String> matchedNames = new java.util.HashSet<>();
+
+        // ── Phase 1: Check LOCAL players (can play sound) ──
         for (Player target : onlinePlayers) {
             // Skip the sender: you cannot tag yourself
             if (target.equals(player)) continue;
@@ -454,15 +468,17 @@ public class ChatListener implements Listener {
             Pattern pattern = Pattern.compile(trigger, Pattern.CASE_INSENSITIVE);
             Matcher matcher = pattern.matcher(message);
             if (matcher.find()) {
-                DebugLogger.debug("ChatListener", "Mention matched: target=" + name + ", matchText='" + matchText + "', placeholder=xchat_m" + mentionIndex);
+                DebugLogger.debug("ChatListener", "Mention matched (local): target=" + name + ", matchText='" + matchText + "', placeholder=xchat_m" + mentionIndex);
                 // Build the mention Component directly via Adventure API
                 Component mentionComp = buildMentionComponent(mentionFormat, matchText);
                 String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
                 resolvers.add(Placeholder.component(placeholderName, mentionComp));
                 message = matcher.replaceAll(Matcher.quoteReplacement("<" + placeholderName + ">"));
 
-                // Play mention sound for the target
+                // Play mention sound for the target (only works for local players)
                 playMentionSound(target);
+                matchedNames.add(name.toLowerCase());
+                if (!matchText.equalsIgnoreCase(name)) matchedNames.add(matchText.toLowerCase());
                 continue;
             }
 
@@ -472,15 +488,40 @@ public class ChatListener implements Listener {
                 Pattern namePattern = Pattern.compile(nameTrigger, Pattern.CASE_INSENSITIVE);
                 Matcher nameMatcher = namePattern.matcher(message);
                 if (nameMatcher.find()) {
+                    DebugLogger.debug("ChatListener", "Mention matched (local name): target=" + name + ", placeholder=xchat_m" + mentionIndex);
                     Component mentionComp = buildMentionComponent(mentionFormat, name);
                     String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
                     resolvers.add(Placeholder.component(placeholderName, mentionComp));
                     message = nameMatcher.replaceAll(Matcher.quoteReplacement("<" + placeholderName + ">"));
 
                     playMentionSound(target);
+                    matchedNames.add(name.toLowerCase());
                 }
             }
         }
+
+        // ── Phase 2: Check CROSS-SERVER players (format only — sound is played on the target's server) ──
+        for (String csName : crossServerNames) {
+            // Skip the sender
+            if (csName.equalsIgnoreCase(player.getName())) continue;
+            // Skip if already matched as a local player
+            if (matchedNames.contains(csName.toLowerCase())) continue;
+
+            String trigger = requireSymbol ? Pattern.quote(symbol + csName) : "\\b" + Pattern.quote(csName) + "\\b";
+            Pattern pattern = Pattern.compile(trigger, Pattern.CASE_INSENSITIVE);
+            Matcher matcher = pattern.matcher(message);
+            if (matcher.find()) {
+                DebugLogger.debug("ChatListener", "Mention matched (cross-server): target=" + csName + ", placeholder=xchat_m" + mentionIndex);
+                Component mentionComp = buildMentionComponent(mentionFormat, csName);
+                String placeholderName = IPC_PREFIX + "m" + (mentionIndex++);
+                resolvers.add(Placeholder.component(placeholderName, mentionComp));
+                message = matcher.replaceAll(Matcher.quoteReplacement("<" + placeholderName + ">"));
+                // No sound here — the target is on another server.
+                // The cross-server mention sound is already handled by processCrossServerMentions()
+                // on the receiving server (it checks preMentionRaw for player names).
+            }
+        }
+
         return message;
     }
 
