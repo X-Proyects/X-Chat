@@ -137,6 +137,7 @@ public class XChat extends JavaPlugin {
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.JoinLeaveListener(this), this);
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.DeathListener(this), this);
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.UnknownCommandListener(this), this);
+            getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.ChatTabCompleteListener(this), this);
 
             // Hide own namespaced commands from tab-completion (1.13+)
             try {
