@@ -4,6 +4,7 @@ import com.fabian.xchat.XChat;
 import com.fabian.xchat.storage.RedisStorageProvider;
 import com.fabian.xchat.utils.DebugLogger;
 import org.bukkit.Bukkit;
+import org.bukkit.scheduler.BukkitTask;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPubSub;
 
@@ -38,6 +39,15 @@ public class RedisMessagingService implements MessagingService {
     private MessageHandler messageHandler;
     private final ConcurrentLinkedQueue<String[]> inboundQueue = new ConcurrentLinkedQueue<>();
 
+    // Reference to the active JedisPubSub instance so we can call unsubscribe()
+    // to cleanly break the blocking jedis.subscribe() call during shutdown.
+    // Volatile because it's set by the subscriber thread and read by the shutdown thread.
+    private volatile JedisPubSub activePubSub;
+
+    // Reference to the Bukkit timer task that drains the inbound queue.
+    // Must be cancelled on shutdown to prevent processing stale messages after reload.
+    private volatile BukkitTask inboundProcessorTask;
+
     public RedisMessagingService(XChat plugin, RedisStorageProvider redisStorage, String serverName) {
         this.plugin = plugin;
         this.redisStorage = redisStorage;
@@ -58,7 +68,7 @@ public class RedisMessagingService implements MessagingService {
         subscriberThread.start();
 
         // Process inbound messages on the main server thread
-        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        inboundProcessorTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             String[] msg;
             while ((msg = inboundQueue.poll()) != null) {
                 try {
@@ -78,7 +88,7 @@ public class RedisMessagingService implements MessagingService {
     private void subscriberLoop() {
         while (running) {
             try (Jedis jedis = redisStorage.getJedisPool().getResource()) {
-                jedis.subscribe(new JedisPubSub() {
+                JedisPubSub pubSub = new JedisPubSub() {
                     @Override
                     public void onMessage(String channel, String message) {
                         // channel: xchat:chat, xchat:pm, etc.
@@ -98,30 +108,67 @@ public class RedisMessagingService implements MessagingService {
                     public void onPong(String pattern) {
                         // Keepalive
                     }
-                }, channelPrefix + "chat", channelPrefix + "pm", channelPrefix + "spy",
+                };
+                activePubSub = pubSub;
+                jedis.subscribe(pubSub, channelPrefix + "chat", channelPrefix + "pm", channelPrefix + "spy",
                      channelPrefix + "broadcast", channelPrefix + "join", channelPrefix + "quit",
                      channelPrefix + "playerlist");
             } catch (Exception e) {
-                DebugLogger.debug("RedisMessaging", "Subscriber disconnected, reconnecting in 5s...", e);
                 if (!running) break;
+                DebugLogger.debug("RedisMessaging", "Subscriber disconnected, reconnecting in 5s...", e);
                 try { Thread.sleep(5000); } catch (InterruptedException ignored) { break; }
             }
         }
+        DebugLogger.debug("RedisMessaging", "Subscriber loop exited");
     }
 
     @Override
     public void shutdown() {
         running = false;
-        if (subscriberThread != null) {
-            subscriberThread.interrupt();
-            try { subscriberThread.join(3000); } catch (InterruptedException ignored) {}
+
+        // 1. Unsubscribe the JedisPubSub to break the blocking jedis.subscribe() call.
+        //    This is the ONLY reliable way to unblock the subscriber thread —
+        //    thread.interrupt() does NOT work on jedis.subscribe().
+        JedisPubSub pubSub = activePubSub;
+        if (pubSub != null) {
+            try {
+                pubSub.unsubscribe();
+            } catch (Exception e) {
+                DebugLogger.debug("RedisMessaging", "Error unsubscribing pub/sub", e);
+            }
+            activePubSub = null;
         }
+
+        // 2. Wait for the subscriber thread to actually finish (max 5 seconds).
+        //    This ensures no duplicate subscribers exist when a new one starts on reload.
+        if (subscriberThread != null) {
+            try {
+                subscriberThread.join(5000);
+                if (subscriberThread.isAlive()) {
+                    DebugLogger.debug("RedisMessaging", "Subscriber thread did not exit within 5s");
+                }
+            } catch (InterruptedException ignored) {}
+            subscriberThread = null;
+        }
+
+        // 3. Cancel the inbound queue processor task so stale messages aren't
+        //    processed after this service is replaced by a new one on reload.
+        if (inboundProcessorTask != null) {
+            try {
+                inboundProcessorTask.cancel();
+            } catch (Exception ignored) {}
+            inboundProcessorTask = null;
+        }
+
+        // 4. Clear any remaining messages in the inbound queue.
+        inboundQueue.clear();
+
         DebugLogger.debug("RedisMessaging", "Redis pub/sub subscriber stopped");
     }
 
     @Override
     public void publish(String channel, String senderName, String senderUUID, String serverName, String message) {
-        if (redisStorage.getJedisPool() == null) return;
+        if (!running || redisStorage.getJedisPool() == null) return;
         // Use CompletableFuture instead of Bukkit scheduler to avoid IllegalPluginAccessException
         // when the plugin is disabling or the scheduler is shutting down.
         java.util.concurrent.CompletableFuture.runAsync(() -> {

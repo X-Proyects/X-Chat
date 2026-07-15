@@ -417,22 +417,48 @@ public class XChat extends JavaPlugin {
 
     /**
      * Starts a heartbeat that cleans stale player entries and re-publishes local players.
+     *
+     * Both the heartbeat interval and stale timeout are configurable in config.yml:
+     *   cross-server.player-list-sync.heartbeat-interval (seconds, default 30)
+     *   cross-server.player-list-sync.stale-timeout     (seconds, default 90)
+     *
+     * The heartbeat interval MUST be shorter than the stale-timeout, otherwise
+     * entries are removed before the next heartbeat can refresh them. If the user
+     * misconfigures this (interval >= timeout), we auto-correct by halving the interval.
      */
     private void startPlayerListHeartbeat() {
         // Cancel previous task if any
         if (playerListHeartbeatTask != null) {
             playerListHeartbeatTask.cancel();
         }
+
+        int heartbeatSeconds = getConfig().getInt("cross-server.player-list-sync.heartbeat-interval", 30);
+        int staleSeconds = getConfig().getInt("cross-server.player-list-sync.stale-timeout", 90);
+
+        // Safety: ensure heartbeat is shorter than stale timeout
+        if (heartbeatSeconds >= staleSeconds) {
+            logWarning("[X-Chat] player-list-sync.heartbeat-interval (" + heartbeatSeconds
+                    + "s) must be lower than stale-timeout (" + staleSeconds
+                    + "s). Auto-correcting to " + (staleSeconds / 2) + "s.");
+            heartbeatSeconds = Math.max(5, staleSeconds / 2);
+        }
+
+        final int staleMs = staleSeconds * 1000;
+        final long heartbeatTicks = heartbeatSeconds * 20L;
+
+        DebugLogger.debug("CrossServer", "Player list heartbeat: every " + heartbeatSeconds
+                + "s, stale timeout " + staleSeconds + "s");
+
         playerListHeartbeatTask = com.fabian.xchat.utils.SchedulerUtil.runAsyncTimer(this, () -> {
             long now = System.currentTimeMillis();
-            // Remove entries older than 90 seconds (no heartbeat)
-            crossServerPlayers.entrySet().removeIf(entry -> now - entry.getValue() > 90000);
+            // Remove entries older than the stale timeout
+            crossServerPlayers.entrySet().removeIf(entry -> now - entry.getValue() > staleMs);
 
-            // Re-publish local players as heartbeat
+            // Re-publish local players as heartbeat (refreshes their timestamp on other servers)
             for (Player p : Bukkit.getOnlinePlayers()) {
                 publishPlayerUpdate(p.getName(), true);
             }
-        }, 6000L, 6000L); // Every 5 minutes
+        }, heartbeatTicks, heartbeatTicks);
     }
 
     // ─── Cross-Server Storage Init ───────────────────────────
@@ -485,9 +511,17 @@ public class XChat extends JavaPlugin {
                 String user = getConfig().getString("cross-server.mysql.username", "root");
                 String pass = getConfig().getString("cross-server.mysql.password", "");
 
-                mysqlStorage = new MySQLStorageProvider(this, host, port, db, user, pass);
-                mysqlStorage.init();
-                DebugLogger.debug("Init", "MySQL storage initialized");
+                try {
+                    mysqlStorage = new MySQLStorageProvider(this, host, port, db, user, pass);
+                    mysqlStorage.init();
+                    DebugLogger.debug("Init", "MySQL storage initialized");
+                } catch (Throwable t) {
+                    logError("[X-Chat] Failed to initialize MySQL storage: " + t.getMessage());
+                    logWarning("[X-Chat] Falling back to YAML storage. Please check your MySQL settings in config.yml.");
+                    DebugLogger.debug("Init", "MySQL init failed, falling back to YAML", t);
+                    mysqlStorage = null;
+                    storageType = ("both".equalsIgnoreCase(getConfig().getString("cross-server.storage", "yaml"))) ? "redis" : "yaml";
+                }
             }
         }
 
@@ -547,43 +581,67 @@ public class XChat extends JavaPlugin {
 
     /**
      * Reinitializes cross-server storage and messaging (for /xchat reload).
+     * Runs ASYNCHRONOUSLY to avoid freezing the main server thread.
+     *
+     * Both shutdown and init run on a separate worker thread because:
+     *   - Redis subscriber shutdown calls pubSub.unsubscribe() + thread.join(5000)
+     *   - MySQL pool shutdown closes HikariCP (can take 1-2s)
+     *   - New MySQL/Redis connection + table creation can take 5-10s
+     *
+     * All of these would freeze the main thread if done synchronously, causing
+     * "Server has not responded for 10 seconds!" warnings.
+     *
+     * To prevent duplicate messages during the reload window, the old messaging
+     * service is fully shut down (subscriber unsubscribed + thread joined)
+     * BEFORE the new one starts. This guarantees no overlap.
      */
     public void reinitCrossServer() {
-        DebugLogger.debug("Init", "Reinitializing cross-server storage and messaging...");
+        DebugLogger.debug("Init", "Reinitializing cross-server storage and messaging (async)...");
 
-        // Shutdown existing messaging
-        if (messagingService != null) {
-            messagingService.shutdown();
-            messagingService = null;
-        }
-        // Shutdown existing storage
-        if (storageProvider != null) {
-            storageProvider.shutdown();
-            storageProvider = null;
-        }
-        if (mysqlStorage != null) {
-            mysqlStorage.shutdown();
-            mysqlStorage = null;
-        }
-        if (redisStorage != null) {
-            redisStorage.shutdown();
-            redisStorage = null;
-        }
+        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+            try {
+                // ── Phase 1: Shutdown existing services ──
+                // This MUST complete before starting new ones to avoid duplicate subscribers.
+                if (messagingService != null) {
+                    messagingService.shutdown();
+                    messagingService = null;
+                }
+                if (storageProvider != null) {
+                    storageProvider.shutdown();
+                    storageProvider = null;
+                }
+                if (mysqlStorage != null) {
+                    mysqlStorage.shutdown();
+                    mysqlStorage = null;
+                }
+                if (redisStorage != null) {
+                    redisStorage.shutdown();
+                    redisStorage = null;
+                }
 
-        // Reinitialize
-        initCrossServerStorage();
+                // ── Phase 2: Initialize new services ──
+                initCrossServerStorage();
 
-        // Restart player list
-        crossServerPlayers.clear();
-        if (messagingService != null && messagingService.isEnabled()) {
-            startPlayerListHeartbeat();
-            requestCrossServerPlayerList();
-        }
+                // Restart player list (on main thread — uses Bukkit API)
+                crossServerPlayers.clear();
+                if (messagingService != null && messagingService.isEnabled()) {
+                    Bukkit.getScheduler().runTask(this, () -> {
+                        startPlayerListHeartbeat();
+                        requestCrossServerPlayerList();
+                    });
+                }
 
-        // Re-init ColorUtils
-        com.fabian.xchat.utils.ColorUtils.init(getConfig());
+                // Re-init ColorUtils (thread-safe)
+                com.fabian.xchat.utils.ColorUtils.init(getConfig());
 
-        DebugLogger.debug("Init", "Cross-server reinitialized");
+                DebugLogger.debug("Init", "Cross-server reinitialized (async) — storageProvider=" +
+                        (storageProvider != null ? storageProvider.getClass().getSimpleName() : "null") +
+                        ", messaging=" + (messagingService != null && messagingService.isEnabled() ? "enabled" : "disabled"));
+            } catch (Throwable t) {
+                logError("[X-Chat] Failed to reinitialize cross-server storage: " + t.getMessage());
+                DebugLogger.debug("Init", "Async reinit failed", t);
+            }
+        });
     }
 
     // ─── Getters ─────────────────────────────────────────────

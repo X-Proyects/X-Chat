@@ -483,6 +483,21 @@ cross-server:
   messaging:
     enabled: true
 
+  # Cross-server player list sync
+  # Controls how often this server publishes its online players to other servers
+  # and how long a player entry stays in the cache before being considered stale.
+  # Lower values = faster tab-completion of cross-server player names, but more Redis traffic.
+  player-list-sync:
+    # How often (in seconds) to re-publish local players to other servers.
+    # Must be LOWER than stale-timeout, otherwise entries expire before the next refresh.
+    # Default: 30 seconds
+    heartbeat-interval: 30
+    # How long (in seconds) a player entry stays in the cache without being refreshed.
+    # If a server stops sending heartbeats (crash, network issue), its players are
+    # removed from the cache after this timeout.
+    # Default: 90 seconds
+    stale-timeout: 90
+
   # Server prefix shown on cross-server messages
   # Controls the [ServerName] prefix that appears before messages from other servers
   server-prefix:

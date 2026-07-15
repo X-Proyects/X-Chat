@@ -23,13 +23,38 @@ public class MySQLStorageProvider implements StorageProvider {
                                String username, String password) {
         this.plugin = plugin;
         HikariConfig config = new HikariConfig();
+        // MySQL 8+ uses caching_sha2_password by default. When connecting without SSL,
+        // the JDBC driver must retrieve the server's public key to encrypt the password.
+        // allowPublicKeyRetrieval=true is required for this (otherwise: "Public Key Retrieval is not allowed").
+        // Also added useUnicode+characterEncoding for proper UTF-8 (utf8mb4) support.
         config.setJdbcUrl("jdbc:mysql://" + host + ":" + port + "/" + database
-                + "?useSSL=false&autoReconnect=true&utf8mb4");
+                + "?useSSL=false&allowPublicKeyRetrieval=true&autoReconnect=true"
+                + "&useUnicode=true&characterEncoding=UTF-8&connectionTimeZone=UTC");
         config.setUsername(username);
         config.setPassword(password);
         config.setMaximumPoolSize(5);
         config.setMinimumIdle(1);
-        config.setConnectionTimeout(5000);
+        // Increased from 5000ms to 30000ms — remote MySQL servers (especially over
+        // network or with high latency) can take 5-10s to respond. The old 5s timeout
+        // caused "No operations allowed after connection closed" because Hikari would
+        // time out and close the connection mid-handshake, then fail when trying to
+        // detect transaction isolation level.
+        config.setConnectionTimeout(30000);
+        // Max lifetime: 30 minutes (MySQL's default wait_timeout is 8 hours, but
+        // network-level firewalls often kill idle connections at 30-60 min).
+        config.setMaxLifetime(1800000);
+        // Idle timeout: 10 minutes
+        config.setIdleTimeout(600000);
+        // Keepalive time: 5 minutes (Hikari 5.1+ sends a keepalive query to prevent
+        // connections from being killed by firewalls/network devices).
+        config.setKeepaliveTime(300000);
+        // Connection test query — used as fallback if JDBC4 isValid() fails
+        config.setConnectionTestQuery("SELECT 1");
+        // Leak detection: logs a warning if a connection is held >60s
+        config.setLeakDetectionThreshold(60000);
+        // Don't fail fast at startup — let the pool initialize lazily so that
+        // /xch reload doesn't throw if MySQL is momentarily unreachable.
+        config.setInitializationFailTimeout(-1);
         config.setPoolName("XChat-MySQL");
         this.dataSource = new HikariDataSource(config);
     }
