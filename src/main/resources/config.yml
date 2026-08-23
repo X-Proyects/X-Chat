@@ -479,6 +479,17 @@ cross-server:
     username: "root"
     password: ""
 
+  # ── Database failover ──
+  # X-Chat NEVER requires MySQL/Redis to run. If the database goes down,
+  # the plugin keeps working locally (chat, tags, formats, PMs, mentions)
+  # and automatically retries in the background until it comes back.
+  failover:
+    # Consecutive connection failures before switching to local-only mode.
+    # 0 = never switch (every query keeps trying — not recommended).
+    max-failures: 3
+    # Seconds between background reconnection attempts while in local-only mode.
+    retry-interval: 15
+
   # Cross-server messaging (requires Redis)
   messaging:
     enabled: true

@@ -82,19 +82,32 @@ public class JoinLeaveListener implements Listener {
         }
 
         // Restore cross-server state from storage (spy, reply target)
+        // IMPORTANT: runs ASYNC — storage (MySQL/Redis) must never block the main thread.
+        // A slow or unreachable database used to freeze the server for up to 30s on every join.
         com.fabian.xchat.storage.StorageProvider sp = plugin.getStorageProvider();
         if (sp != null && !(sp instanceof com.fabian.xchat.storage.YamlStorageProvider)) {
-            // Restore spy state
-            if (sp.isSpyEnabled(player.getUniqueId())) {
-                plugin.toggleSpy(player.getUniqueId()); // enables in-memory
-                DebugLogger.debug("JoinLeave", "Restored spy state for " + player.getName() + " (enabled)");
-            }
-            // Restore reply target
-            java.util.UUID replyTarget = sp.getLastMessageTarget(player.getUniqueId());
-            if (replyTarget != null) {
-                plugin.setLastMessageTarget(player.getUniqueId(), replyTarget);
-                DebugLogger.debug("JoinLeave", "Restored reply target for " + player.getName());
-            }
+            java.util.UUID playerUuid = player.getUniqueId();
+            String playerName = player.getName();
+            com.fabian.xchat.utils.SchedulerUtil.runAsync(plugin, () -> {
+                try {
+                    // Player may have quit before the async task ran
+                    if (plugin.getServer().getPlayer(playerUuid) == null) return;
+
+                    // Restore spy state
+                    if (sp.isSpyEnabled(playerUuid)) {
+                        plugin.toggleSpy(playerUuid); // enables in-memory
+                        DebugLogger.debug("JoinLeave", "Restored spy state for " + playerName + " (enabled)");
+                    }
+                    // Restore reply target
+                    java.util.UUID replyTarget = sp.getLastMessageTarget(playerUuid);
+                    if (replyTarget != null) {
+                        plugin.setLastMessageTarget(playerUuid, replyTarget);
+                        DebugLogger.debug("JoinLeave", "Restored reply target for " + playerName);
+                    }
+                } catch (Exception e) {
+                    DebugLogger.debug("JoinLeave", "Failed to restore state for " + playerName, e);
+                }
+            });
         }
     }
 

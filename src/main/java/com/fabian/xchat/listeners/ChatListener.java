@@ -292,9 +292,19 @@ public class ChatListener implements Listener {
         Bukkit.getConsoleSender().sendMessage(legacyOutput);
 
         // Save to DB chatlog if storage supports it
+        // IMPORTANT: runs ASYNC — never block the main thread with DB I/O on every chat message
         if (plugin.getStorageProvider() != null) {
-            plugin.getStorageProvider().saveChatLog(player.getUniqueId(), player.getName(),
-                    plugin.getServerName(), finalStringForHistory);
+            java.util.UUID senderUuid = player.getUniqueId();
+            String senderName = player.getName();
+            String serverName = plugin.getServerName();
+            com.fabian.xchat.utils.SchedulerUtil.runAsync(plugin, () -> {
+                try {
+                    plugin.getStorageProvider().saveChatLog(senderUuid, senderName,
+                            serverName, finalStringForHistory);
+                } catch (Exception e) {
+                    DebugLogger.debug("ChatListener", "Failed to save chat log async", e);
+                }
+            });
         }
 
         // ── Cross-Server Payload ──
