@@ -32,12 +32,18 @@ public class ChatListener implements Listener {
     private static final Pattern LEGACY_COLOR_PATTERN = Pattern.compile("&[0-9a-fk-orA-FK-OR]");
     private static final Pattern HEX_COLOR_PATTERN_1 = Pattern.compile("&#[A-Fa-f0-9]{6}");
     private static final Pattern HEX_COLOR_PATTERN_2 = Pattern.compile("<#[A-Fa-f0-9]{6}>");
-    private static final Pattern MINIMESSAGE_TAG_PATTERN = Pattern.compile("<[^>]+>");
+    // Strips anything that looks like a MiniMessage tag: must start with a letter,
+    // '#' or '/'. This preserves natural text like "5 < 10 and 20 > 15" or "<tú>".
+    private static final Pattern MINIMESSAGE_TAG_PATTERN = Pattern.compile("<[/]?[a-zA-Z#][^>]*>");
+    // Same, but KEEPS hex color tags (<#RRGGBB> / </#RRGGBB>).
+    // Used when hex is allowed but MiniMessage is not: players keep hex colors
+    // but lose <red>, <bold>, <gradient>, <rainbow>, etc.
+    private static final Pattern MINI_TAG_KEEP_HEX_PATTERN =
+            Pattern.compile("<(?!/?#[A-Fa-f0-9]{6}>)[/]?[a-zA-Z#][^>]*>");
     private static final Pattern CLICK_TAG_PATTERN = Pattern.compile("<[/]?(?i)(click)[^>]*>");
     private static final Pattern HOVER_TAG_PATTERN = Pattern.compile("<[/]?(?i)(hover)[^>]*>");
     private static final Pattern INSERT_TAG_PATTERN = Pattern.compile("<[/]?(?i)(insert)[^>]*>");
     private static final Pattern FONT_TAG_PATTERN = Pattern.compile("<[/]?(?i)(font)[^>]*>");
-    private static final Pattern DANGEROUS_TAG_PATTERN = Pattern.compile("<[/]?(?i)(click|hover|insert|font)[^>]*>");
 
     // Prefix for placeholders injected by interactive features (links, mentions, item tags)
     // Using a unique prefix avoids conflicts with player text or other MiniMessage tags.
@@ -404,10 +410,13 @@ public class ChatListener implements Listener {
         }
         if (!allowMini) {
             if (allowHex) {
-                // Hex allowed but not full MiniMessage: strip only dangerous interactive tags
-                message = DANGEROUS_TAG_PATTERN.matcher(message).replaceAll("");
+                // Hex allowed but not full MiniMessage: strip ALL MiniMessage tags
+                // EXCEPT hex color tags (<#RRGGBB>), which are covered by the hex permission.
+                // (Previously only interactive tags were stripped here, so <red>, <bold>,
+                // <gradient> etc. still worked with MiniMessage disabled — bug.)
+                message = MINI_TAG_KEEP_HEX_PATTERN.matcher(message).replaceAll("");
             } else {
-                // Neither hex nor MiniMessage: strip ALL MiniMessage tags
+                // Neither hex nor MiniMessage: strip ALL MiniMessage tags (including hex)
                 message = MINIMESSAGE_TAG_PATTERN.matcher(message).replaceAll("");
             }
         } else {
