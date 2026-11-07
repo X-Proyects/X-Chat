@@ -1,26 +1,39 @@
 package com.fabian.xchat.utils;
 
-import com.fabian.xchat.XChat;
-import com.fabian.xchat.managers.LanguageManager;
-import com.fabian.xchat.utils.DebugLogger;
 import org.bukkit.Bukkit;
 import org.bukkit.command.CommandSender;
+import org.bukkit.plugin.Plugin;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.function.Function;
 
+/**
+ * X-Proyects Unified Update Checker (canonical implementation).
+ * <p>
+ * Identical across every X-Proyects plugin — only the package and the
+ * plugin-specific message resolver change.
+ * <p>
+ * Message resolver: maps a message key to its localized text.
+ * Required keys: {@code update-available}, {@code update-download},
+ * {@code update-current}, {@code update-error}.
+ * Supported placeholders: {@code %current%}, {@code %latest%}, {@code %url%}.
+ */
 public class UpdateChecker {
 
-    private final XChat plugin;
+    private final Plugin plugin;
     private final int resourceId;
-    private String latestVersion;
-    private boolean updateAvailable;
+    private final Function<String, String> messageResolver;
 
-    public UpdateChecker(XChat plugin) {
+    private volatile String latestVersion;
+    private volatile boolean updateAvailable;
+
+    public UpdateChecker(Plugin plugin, int resourceId, Function<String, String> messageResolver) {
         this.plugin = plugin;
-        this.resourceId = 135770;
+        this.resourceId = resourceId;
+        this.messageResolver = messageResolver;
         this.updateAvailable = false;
     }
 
@@ -28,55 +41,129 @@ public class UpdateChecker {
         checkForUpdates(null);
     }
 
+    @SuppressWarnings("deprecation")
     public void checkForUpdates(CommandSender sender) {
-        DebugLogger.debug("UpdateChecker", "Starting update check (sender: " + (sender != null ? sender.getName() : "console") + ")");
-        com.fabian.xchat.utils.SchedulerUtil.runAsync(plugin, () -> {
+        SchedulerUtil.runTaskAsynchronously(plugin, () -> {
+            HttpURLConnection connection = null;
+            BufferedReader reader = null;
             try {
                 String currentVersion = plugin.getDescription().getVersion();
-                
+
                 // Spigot API for resource versions
                 URL url = new URL("https://api.spigotmc.org/legacy/update.php?resource=" + resourceId);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("GET");
-                connection.setRequestProperty("User-Agent", "Fabian/X-Chat/" + currentVersion);
+                connection.setRequestProperty("User-Agent", "Fabian/X-Proyects/" + currentVersion);
                 connection.setConnectTimeout(5000);
                 connection.setReadTimeout(5000);
 
-                BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
                 String version = reader.readLine();
-                reader.close();
 
                 this.latestVersion = version;
-                LanguageManager lang = plugin.getLanguageManager();
 
-                if (latestVersion != null && isNewer(currentVersion, latestVersion)) {
+                if (latestVersion != null && isNewerVersion(currentVersion, latestVersion)) {
                     this.updateAvailable = true;
-                    DebugLogger.debug("UpdateChecker", "Update available: " + currentVersion + " -> " + latestVersion);
-
-                    if (sender != null) {
-                        ColorUtils.sendComponent(sender, ColorUtils.format(null, lang.getMessage("update-available").replace("%current%", currentVersion).replace("%latest%", latestVersion)));
-                        ColorUtils.sendComponent(sender, ColorUtils.format(null, lang.getMessage("update-download").replace("%url%", getDownloadUrl())));
-                    } else {
-                        ColorUtils.sendComponent(Bukkit.getConsoleSender(), ColorUtils.format(null, lang.getMessage("update-available").replace("%current%", currentVersion).replace("%latest%", latestVersion)));
-                        ColorUtils.sendComponent(Bukkit.getConsoleSender(), ColorUtils.format(null, lang.getMessage("update-download").replace("%url%", getDownloadUrl())));
-                    }
+                    notify(sender, "update-available",
+                            "%current%", currentVersion,
+                            "%latest%", latestVersion);
+                    notify(sender, "update-download",
+                            "%url%", getDownloadUrl());
                 } else {
-                    if (sender != null) {
-                        ColorUtils.sendComponent(sender, ColorUtils.format(null, lang.getMessage("update-current")));
-                    } else {
-                        ColorUtils.sendComponent(Bukkit.getConsoleSender(), ColorUtils.format(null, lang.getMessage("update-current")));
-                    }
+                    notify(sender, "update-current");
                 }
 
             } catch (Exception e) {
-                DebugLogger.debug("UpdateChecker", "Update check failed", e);
-                if (sender != null) {
-                    ColorUtils.sendComponent(sender, ColorUtils.format(null, plugin.getLanguageManager().getMessage("update-error")));
-                } else {
-                    ColorUtils.sendComponent(Bukkit.getConsoleSender(), ColorUtils.format(null, plugin.getLanguageManager().getMessage("update-error")));
+                notify(sender, "update-error");
+            } finally {
+                if (reader != null) {
+                    try { reader.close(); } catch (Exception ignored) {}
+                }
+                if (connection != null) {
+                    connection.disconnect();
                 }
             }
         });
+    }
+
+    /**
+     * Sends a resolved message to the given sender (or console if null).
+     */
+    private void notify(CommandSender sender, String key, String... replacements) {
+        String message = resolve(key, replacements);
+        CommandSender target = sender != null ? sender : Bukkit.getConsoleSender();
+        if (message != null && !message.isEmpty()) {
+            target.sendMessage(message);
+        }
+    }
+
+    /**
+     * Resolves a message key with placeholder substitution.
+     */
+    private String resolve(String key, String... replacements) {
+        String message;
+        try {
+            message = messageResolver != null ? messageResolver.apply(key) : null;
+        } catch (Exception e) {
+            message = null;
+        }
+        if (message == null || message.isEmpty()) {
+            // Canonical English fallback so the checker never goes silent
+            switch (key) {
+                case "update-available": return "&eA new version is available! &7(&a" + safe(replacements, 1) + "&7)";
+                case "update-download": return "&eDownload: &b" + getDownloadUrl();
+                case "update-current": return "&aYou are running the latest version.";
+                default: return "&cUpdate check failed.";
+            }
+        }
+        for (int i = 0; i + 1 < replacements.length; i += 2) {
+            message = message.replace(replacements[i], replacements[i + 1]);
+        }
+        return org.bukkit.ChatColor.translateAlternateColorCodes('&', message);
+    }
+
+    private static String safe(String[] arr, int idx) {
+        return (arr != null && idx < arr.length && arr[idx] != null) ? arr[idx] : "?";
+    }
+
+    /**
+     * Compares semantic versions ("1.8" vs "1.9", "2.4" vs "2.10", "1.3-Beta" etc.).
+     */
+    private boolean isNewerVersion(String current, String remote) {
+        if (remote == null || remote.isEmpty())
+            return false;
+
+        // Remove 'v' or 'V' if present
+        String v1 = current.toLowerCase().replace("v", "");
+        String v2 = remote.toLowerCase().replace("v", "");
+
+        String[] currentParts = v1.split("\\.");
+        String[] remoteParts = v2.split("\\.");
+
+        int length = Math.max(currentParts.length, remoteParts.length);
+        for (int i = 0; i < length; i++) {
+            int currentPart = 0;
+            int remotePart = 0;
+            if (i < currentParts.length) {
+                String cleaned = currentParts[i].replaceAll("[^0-9]", "");
+                if (!cleaned.isEmpty()) {
+                    try { currentPart = Integer.parseInt(cleaned); } catch (NumberFormatException e) { currentPart = 0; }
+                }
+            }
+            if (i < remoteParts.length) {
+                String cleaned = remoteParts[i].replaceAll("[^0-9]", "");
+                if (!cleaned.isEmpty()) {
+                    try { remotePart = Integer.parseInt(cleaned); } catch (NumberFormatException e) { remotePart = 0; }
+                }
+            }
+
+            if (remotePart > currentPart)
+                return true;
+            if (remotePart < currentPart)
+                return false;
+        }
+
+        return false;
     }
 
     public boolean isUpdateAvailable() {
@@ -89,84 +176,5 @@ public class UpdateChecker {
 
     public String getDownloadUrl() {
         return "https://www.spigotmc.org/resources/" + resourceId + "/";
-    }
-
-    /**
-     * Compares two version strings and returns true only if `latest` is strictly
-     * newer than `current`. Understands pre-release suffixes:
-     *   1.3-Beta-10 &lt; 1.3  (a release is newer than any pre-release of the same base)
-     *   1.3-Beta-9  &lt; 1.3-Beta-10
-     *   1.3         &lt; 1.4
-     */
-    private boolean isNewer(String current, String latest) {
-        try {
-            if (current == null || latest == null) return false;
-
-            // Normalize: trim and strip a leading "v"/"V"
-            String c = current.trim().replaceFirst("(?i)^v", "");
-            String l = latest.trim().replaceFirst("(?i)^v", "");
-            if (c.equalsIgnoreCase(l)) return false;
-
-            // Split base version from pre-release suffix: "1.3-Beta-10" -> "1.3" + pre-release
-            String cBase = c.split("-")[0].trim();
-            String lBase = l.split("-")[0].trim();
-            boolean cPre = c.contains("-");
-            boolean lPre = l.contains("-");
-
-            // Compare numeric base versions first
-            int cmp = compareNumericVersions(cBase, lBase);
-            if (cmp != 0) return cmp < 0;
-
-            // Same base version: a release (no suffix) is NEWER than any pre-release.
-            // Fixes: "1.3" no longer reports an update when Spigot shows "1.3-Beta-10".
-            if (cPre && !lPre) return true;   // current is pre-release, latest is release -> update
-            if (!cPre && lPre) return false;  // current is release, latest is pre-release -> no update
-            if (cPre && lPre) {
-                // Both pre-releases: compare trailing build numbers (Beta-9 vs Beta-10)
-                return extractTrailingNumber(l) > extractTrailingNumber(c);
-            }
-            return false;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    /**
-     * Compares dotted numeric versions ("1.3" vs "1.3.1").
-     * Returns negative if a &lt; b, positive if a &gt; b, zero if equal.
-     */
-    private int compareNumericVersions(String a, String b) {
-        String[] aParts = a.split("\\.");
-        String[] bParts = b.split("\\.");
-        int length = Math.max(aParts.length, bParts.length);
-        for (int i = 0; i < length; i++) {
-            int aPart = i < aParts.length ? parseVersionPart(aParts[i]) : 0;
-            int bPart = i < bParts.length ? parseVersionPart(bParts[i]) : 0;
-            if (aPart != bPart) return Integer.compare(aPart, bPart);
-        }
-        return 0;
-    }
-
-    /** Extracts the trailing number of a pre-release suffix ("Beta-10" -> 10). */
-    private int extractTrailingNumber(String version) {
-        java.util.regex.Matcher m = TRAILING_NUMBER_PATTERN.matcher(version);
-        if (m.find()) {
-            try {
-                return Integer.parseInt(m.group(1));
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return 0;
-    }
-
-    private static final java.util.regex.Pattern TRAILING_NUMBER_PATTERN =
-            java.util.regex.Pattern.compile("(\\d+)\\s*$");
-
-    private int parseVersionPart(String part) {
-        try {
-            return Integer.parseInt(part.trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 }

@@ -32,6 +32,12 @@ public class XChat extends JavaPlugin {
 
     private static XChat instance;
 
+    // SpigotMC resource ID for the unified UpdateChecker
+    private static final int SPIGOT_RESOURCE_ID = 135770;
+
+    // bStats (external bstats-bukkit library, shaded) — kept as X-Chat's metrics implementation
+    private org.bstats.bukkit.Metrics metrics;
+
     public static XChat getInstance() {
         return instance;
     }
@@ -79,6 +85,10 @@ public class XChat extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
+
+        // Unified debug system (X-Proyects canonical DebugLogger)
+        DebugLogger.init(this, "X-Chat");
+        DebugLogger.setDebug(getConfig().getBoolean("debug", false));
 
         try {
             // Initialize config managers first
@@ -137,7 +147,6 @@ public class XChat extends JavaPlugin {
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.JoinLeaveListener(this), this);
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.DeathListener(this), this);
             getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.UnknownCommandListener(this), this);
-            getServer().getPluginManager().registerEvents(new com.fabian.xchat.listeners.ChatTabCompleteListener(this), this);
 
             // Hide own namespaced commands from tab-completion (1.13+)
             try {
@@ -166,7 +175,7 @@ public class XChat extends JavaPlugin {
         // Check for updates
         if (getConfig().getBoolean("updates.check", true)) {
             DebugLogger.debug("Update", "Update checker enabled, scheduling check");
-            this.updateChecker = new com.fabian.xchat.utils.UpdateChecker(this);
+            this.updateChecker = new com.fabian.xchat.utils.UpdateChecker(this, SPIGOT_RESOURCE_ID, this::resolveUpdateMessage);
             com.fabian.xchat.utils.SchedulerUtil.runAsyncDelayed(this, () -> updateChecker.checkForUpdates(), 100L);
         }
 
@@ -418,48 +427,22 @@ public class XChat extends JavaPlugin {
 
     /**
      * Starts a heartbeat that cleans stale player entries and re-publishes local players.
-     *
-     * Both the heartbeat interval and stale timeout are configurable in config.yml:
-     *   cross-server.player-list-sync.heartbeat-interval (seconds, default 30)
-     *   cross-server.player-list-sync.stale-timeout     (seconds, default 90)
-     *
-     * The heartbeat interval MUST be shorter than the stale-timeout, otherwise
-     * entries are removed before the next heartbeat can refresh them. If the user
-     * misconfigures this (interval >= timeout), we auto-correct by halving the interval.
      */
     private void startPlayerListHeartbeat() {
         // Cancel previous task if any
         if (playerListHeartbeatTask != null) {
             playerListHeartbeatTask.cancel();
         }
-
-        int heartbeatSeconds = getConfig().getInt("cross-server.player-list-sync.heartbeat-interval", 30);
-        int staleSeconds = getConfig().getInt("cross-server.player-list-sync.stale-timeout", 90);
-
-        // Safety: ensure heartbeat is shorter than stale timeout
-        if (heartbeatSeconds >= staleSeconds) {
-            logWarning("[X-Chat] player-list-sync.heartbeat-interval (" + heartbeatSeconds
-                    + "s) must be lower than stale-timeout (" + staleSeconds
-                    + "s). Auto-correcting to " + (staleSeconds / 2) + "s.");
-            heartbeatSeconds = Math.max(5, staleSeconds / 2);
-        }
-
-        final int staleMs = staleSeconds * 1000;
-        final long heartbeatTicks = heartbeatSeconds * 20L;
-
-        DebugLogger.debug("CrossServer", "Player list heartbeat: every " + heartbeatSeconds
-                + "s, stale timeout " + staleSeconds + "s");
-
         playerListHeartbeatTask = com.fabian.xchat.utils.SchedulerUtil.runAsyncTimer(this, () -> {
             long now = System.currentTimeMillis();
-            // Remove entries older than the stale timeout
-            crossServerPlayers.entrySet().removeIf(entry -> now - entry.getValue() > staleMs);
+            // Remove entries older than 90 seconds (no heartbeat)
+            crossServerPlayers.entrySet().removeIf(entry -> now - entry.getValue() > 90000);
 
-            // Re-publish local players as heartbeat (refreshes their timestamp on other servers)
+            // Re-publish local players as heartbeat
             for (Player p : Bukkit.getOnlinePlayers()) {
                 publishPlayerUpdate(p.getName(), true);
             }
-        }, heartbeatTicks, heartbeatTicks);
+        }, 6000L, 6000L); // Every 5 minutes
     }
 
     // ─── Cross-Server Storage Init ───────────────────────────
@@ -512,17 +495,9 @@ public class XChat extends JavaPlugin {
                 String user = getConfig().getString("cross-server.mysql.username", "root");
                 String pass = getConfig().getString("cross-server.mysql.password", "");
 
-                try {
-                    mysqlStorage = new MySQLStorageProvider(this, host, port, db, user, pass);
-                    mysqlStorage.init();
-                    DebugLogger.debug("Init", "MySQL storage initialized");
-                } catch (Throwable t) {
-                    logError("[X-Chat] Failed to initialize MySQL storage: " + t.getMessage());
-                    logWarning("[X-Chat] Falling back to YAML storage. Please check your MySQL settings in config.yml.");
-                    DebugLogger.debug("Init", "MySQL init failed, falling back to YAML", t);
-                    mysqlStorage = null;
-                    storageType = ("both".equalsIgnoreCase(getConfig().getString("cross-server.storage", "yaml"))) ? "redis" : "yaml";
-                }
+                mysqlStorage = new MySQLStorageProvider(this, host, port, db, user, pass);
+                mysqlStorage.init();
+                DebugLogger.debug("Init", "MySQL storage initialized");
             }
         }
 
@@ -582,67 +557,43 @@ public class XChat extends JavaPlugin {
 
     /**
      * Reinitializes cross-server storage and messaging (for /xchat reload).
-     * Runs ASYNCHRONOUSLY to avoid freezing the main server thread.
-     *
-     * Both shutdown and init run on a separate worker thread because:
-     *   - Redis subscriber shutdown calls pubSub.unsubscribe() + thread.join(5000)
-     *   - MySQL pool shutdown closes HikariCP (can take 1-2s)
-     *   - New MySQL/Redis connection + table creation can take 5-10s
-     *
-     * All of these would freeze the main thread if done synchronously, causing
-     * "Server has not responded for 10 seconds!" warnings.
-     *
-     * To prevent duplicate messages during the reload window, the old messaging
-     * service is fully shut down (subscriber unsubscribed + thread joined)
-     * BEFORE the new one starts. This guarantees no overlap.
      */
     public void reinitCrossServer() {
-        DebugLogger.debug("Init", "Reinitializing cross-server storage and messaging (async)...");
+        DebugLogger.debug("Init", "Reinitializing cross-server storage and messaging...");
 
-        Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
-            try {
-                // ── Phase 1: Shutdown existing services ──
-                // This MUST complete before starting new ones to avoid duplicate subscribers.
-                if (messagingService != null) {
-                    messagingService.shutdown();
-                    messagingService = null;
-                }
-                if (storageProvider != null) {
-                    storageProvider.shutdown();
-                    storageProvider = null;
-                }
-                if (mysqlStorage != null) {
-                    mysqlStorage.shutdown();
-                    mysqlStorage = null;
-                }
-                if (redisStorage != null) {
-                    redisStorage.shutdown();
-                    redisStorage = null;
-                }
+        // Shutdown existing messaging
+        if (messagingService != null) {
+            messagingService.shutdown();
+            messagingService = null;
+        }
+        // Shutdown existing storage
+        if (storageProvider != null) {
+            storageProvider.shutdown();
+            storageProvider = null;
+        }
+        if (mysqlStorage != null) {
+            mysqlStorage.shutdown();
+            mysqlStorage = null;
+        }
+        if (redisStorage != null) {
+            redisStorage.shutdown();
+            redisStorage = null;
+        }
 
-                // ── Phase 2: Initialize new services ──
-                initCrossServerStorage();
+        // Reinitialize
+        initCrossServerStorage();
 
-                // Restart player list (on main thread — uses Bukkit API)
-                crossServerPlayers.clear();
-                if (messagingService != null && messagingService.isEnabled()) {
-                    Bukkit.getScheduler().runTask(this, () -> {
-                        startPlayerListHeartbeat();
-                        requestCrossServerPlayerList();
-                    });
-                }
+        // Restart player list
+        crossServerPlayers.clear();
+        if (messagingService != null && messagingService.isEnabled()) {
+            startPlayerListHeartbeat();
+            requestCrossServerPlayerList();
+        }
 
-                // Re-init ColorUtils (thread-safe)
-                com.fabian.xchat.utils.ColorUtils.init(getConfig());
+        // Re-init ColorUtils
+        com.fabian.xchat.utils.ColorUtils.init(getConfig());
 
-                DebugLogger.debug("Init", "Cross-server reinitialized (async) — storageProvider=" +
-                        (storageProvider != null ? storageProvider.getClass().getSimpleName() : "null") +
-                        ", messaging=" + (messagingService != null && messagingService.isEnabled() ? "enabled" : "disabled"));
-            } catch (Throwable t) {
-                logError("[X-Chat] Failed to reinitialize cross-server storage: " + t.getMessage());
-                DebugLogger.debug("Init", "Async reinit failed", t);
-            }
-        });
+        DebugLogger.debug("Init", "Cross-server reinitialized");
     }
 
     // ─── Getters ─────────────────────────────────────────────
@@ -665,6 +616,25 @@ public class XChat extends JavaPlugin {
 
     public com.fabian.xchat.utils.UpdateChecker getUpdateChecker() {
         return updateChecker;
+    }
+
+    /**
+     * Message resolver for the unified UpdateChecker: pulls the localized
+     * message from the LanguageManager, resolves the %prefix% token, and
+     * converts MiniMessage to legacy §-codes (the canonical checker sends
+     * plain legacy strings). Returns null for missing keys so the canonical
+     * English fallback kicks in.
+     */
+    private String resolveUpdateMessage(String key) {
+        LanguageManager lang = getLanguageManager();
+        if (lang == null) return null;
+        String raw = lang.getRawMessage(key);
+        if (raw == null || raw.isEmpty()) return null;
+        String prefix = getConfig().getString("settings.prefix", "");
+        if (prefix != null) {
+            raw = raw.replace("%prefix%", prefix);
+        }
+        return ColorUtils.translateColors(raw);
     }
 
     public DataManager getDataManager() {
@@ -697,20 +667,11 @@ public class XChat extends JavaPlugin {
         switch (channel) {
             case "chat": {
                 // Cross-server chat message
-                // Payload format (3 parts, delimited by \u0001):
-                //   Part 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
-                //   Part 2: JSON serialized Component (full hover/click/format) or empty
-                //   Part 3: pre-mention plain text (for cross-server mention sound detection)
-                //
-                // For backward compatibility with older senders that still use \n as delimiter,
-                // we detect which delimiter the payload uses by checking for \u0001 first.
-                String[] parts;
-                if (message.indexOf('\u0001') != -1) {
-                    parts = message.split("\u0001", 3);
-                } else {
-                    // Legacy payload using \n delimiter (older plugin version on sender side)
-                    parts = message.split("\n", 3);
-                }
+                // Payload format (3 lines, newline-delimited):
+                //   Line 1: legacy formatted message (§-coded, Spigot/ultimate fallback)
+                //   Line 2: JSON serialized Component (full hover/click/format) or empty
+                //   Line 3: pre-mention plain text (for cross-server mention sound detection)
+                String[] parts = message.split("\n", 3);
                 String legacyMessage = parts[0];
                 String jsonComponent = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : null;
                 String preMentionRaw = (parts.length > 2 && !parts[2].isEmpty()) ? parts[2] : null;
@@ -723,14 +684,9 @@ public class XChat extends JavaPlugin {
                 UUID senderUuid = null;
                 try { senderUuid = UUID.fromString(senderUUID); } catch (IllegalArgumentException ignored) {}
 
-                // Try JSON deserialization first (preserves ALL Component data: hover, click, gradients)
-                // This is the ONLY path that preserves interactive features cross-server.
-                // We NO LONGER guard with isPaperAdventureAvailable() — that check was unreliable
-                // (false negatives on Paper 1.16.5 / when Libby hadn't loaded Adventure yet) and
-                // caused the entire JSON path to be skipped, stripping ALL hover/click events.
-                // Instead, we just try the JSON path and catch any error.
+                // Try JSON deserialization first (preserves ALL Component data)
                 boolean displayed = false;
-                if (jsonComponent != null) {
+                if (jsonComponent != null && ColorUtils.isPaperAdventureAvailable()) {
                     try {
                         DebugLogger.debug("CrossServer", "JSON component length: " + jsonComponent.length());
                         Component comp = GsonComponentSerializer.gson().deserialize(jsonComponent);
@@ -743,15 +699,10 @@ public class XChat extends JavaPlugin {
                             if (storageProvider != null && !(storageProvider instanceof YamlStorageProvider) && senderUuid != null) {
                                 try { if (storageProvider.isIgnoring(p.getUniqueId(), senderUuid)) continue; } catch (Exception ignored) {}
                             }
-                            try {
-                                p.sendMessage(finalComp);
-                            } catch (NoSuchMethodError | NoClassDefFoundError fallback) {
-                                // Player class lacks Adventure API (very old Spigot) — fall back to legacy
-                                p.sendMessage(ColorUtils.toLegacyString(finalComp));
-                            }
+                            p.sendMessage(finalComp);
                         }
                         displayed = true;
-                        DebugLogger.debug("CrossServer", "Displayed chat from " + originServer + " via JSON Component (hover/click preserved)");
+                        DebugLogger.debug("CrossServer", "Displayed chat from " + originServer + " via JSON Component");
                     } catch (Throwable t) {
                         logWarning("[X-Chat] Failed to deserialize cross-server JSON component, falling back to legacy. Error: " + t.getMessage());
                         DebugLogger.debug("CrossServer", "JSON deserialize failed", t);
@@ -759,12 +710,11 @@ public class XChat extends JavaPlugin {
                     }
                 }
 
-                // Fallback: legacy message (JSON parse failed or JSON was null)
+                // Fallback: legacy message (Spigot or JSON parse failed)
                 if (!displayed) {
                     String displayMessage = legacyMessage;
-                    // Re-process auto-links on pre-mention raw text for basic formatting
-                    // (this runs on both Paper and Spigot when the JSON path failed)
-                    if (preMentionRaw != null) {
+                    // For Spigot, re-process auto-links on pre-mention raw text for basic formatting
+                    if (preMentionRaw != null && !ColorUtils.isPaperAdventureAvailable()) {
                         String processedRaw = reprocessCrossServerLinks(preMentionRaw);
                         if (!processedRaw.equals(preMentionRaw)) {
                             String simpleFormat = "<gray>" + senderName + " <dark_gray>» " + processedRaw;
@@ -1043,6 +993,17 @@ public class XChat extends JavaPlugin {
     public void onDisable() {
         DebugLogger.debug("Init", "Plugin disabling...");
 
+        // Shut down bStats (cancels its metrics timer).
+        // Note: bstats-bukkit 3.0.2 exposes shutdown(); close()/AutoCloseable
+        // only arrived in later 3.x releases.
+        if (metrics != null) {
+            try {
+                metrics.shutdown();
+            } catch (Exception ignored) {
+            }
+            metrics = null;
+        }
+
         // Publish quit for all online players to clear cross-server player list
         // Use publishSync to avoid IllegalPluginAccessException (scheduler is shutting down)
         if (messagingService != null && messagingService.isEnabled()) {
@@ -1093,7 +1054,10 @@ public class XChat extends JavaPlugin {
     private void setupMetrics() {
         if (getConfig().getBoolean("settings.metrics", true)) {
             try {
-                new org.bstats.bukkit.Metrics(this, 31664);
+                // X-Chat keeps the external shaded bstats-bukkit library (3.x) as its
+                // bStats implementation — functionally equivalent to the embedded
+                // canonical Metrics.java used by the other X-Proyects plugins.
+                metrics = new org.bstats.bukkit.Metrics(this, 31664);
             } catch (Exception e) {
                 logWarning("Could not start bStats Metrics: " + e.getMessage());
             }

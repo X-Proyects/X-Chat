@@ -479,35 +479,9 @@ cross-server:
     username: "root"
     password: ""
 
-  # ── Database failover ──
-  # X-Chat NEVER requires MySQL/Redis to run. If the database goes down,
-  # the plugin keeps working locally (chat, tags, formats, PMs, mentions)
-  # and automatically retries in the background until it comes back.
-  failover:
-    # Consecutive connection failures before switching to local-only mode.
-    # 0 = never switch (every query keeps trying — not recommended).
-    max-failures: 3
-    # Seconds between background reconnection attempts while in local-only mode.
-    retry-interval: 15
-
   # Cross-server messaging (requires Redis)
   messaging:
     enabled: true
-
-  # Cross-server player list sync
-  # Controls how often this server publishes its online players to other servers
-  # and how long a player entry stays in the cache before being considered stale.
-  # Lower values = faster tab-completion of cross-server player names, but more Redis traffic.
-  player-list-sync:
-    # How often (in seconds) to re-publish local players to other servers.
-    # Must be LOWER than stale-timeout, otherwise entries expire before the next refresh.
-    # Default: 30 seconds
-    heartbeat-interval: 30
-    # How long (in seconds) a player entry stays in the cache without being refreshed.
-    # If a server stops sending heartbeats (crash, network issue), its players are
-    # removed from the cache after this timeout.
-    # Default: 90 seconds
-    stale-timeout: 90
 
   # Server prefix shown on cross-server messages
   # Controls the [ServerName] prefix that appears before messages from other servers

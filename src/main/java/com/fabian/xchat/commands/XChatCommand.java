@@ -94,15 +94,18 @@ public class XChatCommand implements CommandExecutor, TabCompleter {
                 break;
 
             case "debug":
+                // Connected to the unified DebugLogger (X-Proyects canonical):
+                // player toggle -> DebugLogger.setDebugPlayer(uuid),
+                // console toggle -> config debug flag + DebugLogger.setDebug(...)
                 if (sender instanceof Player) {
                     Player player = (Player) sender;
-                    if (plugin.getConfigManager().debugPlayer != null && plugin.getConfigManager().debugPlayer.equals(player.getUniqueId())) {
-                        plugin.getConfigManager().debugPlayer = null;
+                    if (DebugLogger.getDebugPlayer() != null && DebugLogger.getDebugPlayer().equals(player.getUniqueId())) {
+                        DebugLogger.setDebugPlayer(null);
                         com.fabian.xchat.utils.ColorUtils.sendComponent(player,
                                 com.fabian.xchat.utils.ColorUtils.format(player,
                                 plugin.getConfig().getString("prefix", "&8[&bX-Chat&8]&r ") + "&7Debug mode: &cdisabled"));
                     } else {
-                        plugin.getConfigManager().debugPlayer = player.getUniqueId();
+                        DebugLogger.setDebugPlayer(player.getUniqueId());
                         com.fabian.xchat.utils.ColorUtils.sendComponent(player,
                                 com.fabian.xchat.utils.ColorUtils.format(player,
                                 plugin.getConfig().getString("prefix", "&8[&bX-Chat&8]&r ") + "&7Debug mode: &aenabled &7(messages sent to you)"));
@@ -111,6 +114,7 @@ public class XChatCommand implements CommandExecutor, TabCompleter {
                     boolean dbg = plugin.getConfig().getBoolean("debug", false);
                     plugin.getConfig().set("debug", !dbg);
                     plugin.saveConfig();
+                    DebugLogger.setDebug(!dbg);
                     com.fabian.xchat.utils.ColorUtils.sendComponent(sender,
                             com.fabian.xchat.utils.ColorUtils.format(null,
                             plugin.getConfig().getString("prefix", "&8[&bX-Chat&8]&r ") + "&7Debug mode: " + (!dbg ? "&aenabled &7(console)" : "&cdisabled")));

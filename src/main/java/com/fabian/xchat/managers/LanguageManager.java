@@ -62,6 +62,15 @@ public class LanguageManager {
         return msg;
     }
 
+    /**
+     * Returns the raw (unformatted) message for a key, or null when the key
+     * is missing. Used by the unified UpdateChecker message resolver so it can
+     * fall back to the canonical English strings for missing keys.
+     */
+    public String getRawMessage(String path) {
+        return langConfig.getString(path, null);
+    }
+
     public List<String> getMessageList(String path) {
         if (!langConfig.isList(path)) return Collections.singletonList(getMessage(path));
         return langConfig.getStringList(path);

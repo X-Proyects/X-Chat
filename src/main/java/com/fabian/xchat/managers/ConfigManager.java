@@ -12,13 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.Set;
-import java.util.UUID;
 
 public class ConfigManager {
 
     private final XChat plugin;
     private FileConfiguration config;
-    public UUID debugPlayer; // player who enabled debug via command (null = console-only via config)
 
     public ConfigManager(XChat plugin) {
         this.plugin = plugin;
@@ -55,26 +53,39 @@ public class ConfigManager {
         this.config = plugin.getConfig();
 
         // Si recién regeneramos la config corrupta, no hace falta merge
-        if (needFreshConfig) return;
+        if (!needFreshConfig) {
+            // Check config-code para auto-actualizar
+            int currentCode = config.getInt("config-code", 0);
 
-        // Check config-code para auto-actualizar
-        int currentCode = config.getInt("config-code", 0);
+            InputStream defaultStream = plugin.getResource("config.yml");
+            if (defaultStream != null) {
+                YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
+                        new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
+                int newCode = defaultConfig.getInt("config-code", 0);
 
-        InputStream defaultStream = plugin.getResource("config.yml");
-        if (defaultStream != null) {
-            YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(
-                    new InputStreamReader(defaultStream, StandardCharsets.UTF_8));
-            int newCode = defaultConfig.getInt("config-code", 0);
-
-            if (currentCode < newCode) {
-                plugin.logInfo("&eFound a newer configuration version! (&f" + currentCode + " &7-> &a" + newCode + "&e)");
-                DebugLogger.debug("ConfigManager", "Config update detected: " + currentCode + " -> " + newCode);
-                backupConfig();
-                mergeConfig();
-                plugin.reloadConfig();
-                this.config = plugin.getConfig();
+                if (currentCode < newCode) {
+                    plugin.logInfo("&eFound a newer configuration version! (&f" + currentCode + " &7-> &a" + newCode + "&e)");
+                    DebugLogger.debug("ConfigManager", "Config update detected: " + currentCode + " -> " + newCode);
+                    backupConfig();
+                    mergeConfig();
+                    plugin.reloadConfig();
+                    this.config = plugin.getConfig();
+                }
             }
         }
+
+        // Unified config updater (X-Proyects canonical ConfigUpdater): adds any
+        // keys still missing from the bundled default (existing values and
+        // comments preserved). Applied to config.yml only — the other bundled
+        // configs (formats.yml, deaths.yml, announcements.yml, tags/*.yml) have
+        // no migration logic in X-Chat, so no updater is forced on them.
+        com.fabian.xchat.utils.ConfigUpdater.update(plugin, "config.yml",
+                new File(plugin.getDataFolder(), "config.yml"));
+        plugin.reloadConfig();
+        this.config = plugin.getConfig();
+
+        // Refresh the cached debug flag of the unified DebugLogger (config-based debug)
+        DebugLogger.setDebug(plugin.getConfig().getBoolean("debug", false));
     }
 
     private void backupConfig() {
